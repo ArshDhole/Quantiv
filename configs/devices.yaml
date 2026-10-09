@@ -1,0 +1,27 @@
+targets:
+  rtx3060-12gb:
+    description: "Desktop Ampere, 12GB — common quantization target"
+    vram_gb: 12
+    kind: cuda
+    compute_capability: "8.6"
+  rtx5050-8gb:
+    description: "Laptop Blackwell-class, 8GB (current build machine)"
+    vram_gb: 8
+    kind: cuda
+  a100-80gb:
+    description: "Datacenter build machine"
+    vram_gb: 80
+    kind: cuda
+    compute_capability: "8.0"
+  cpu-only:
+    description: "No GPU — GGUF CPU path only"
+    vram_gb: 0
+    kind: cpu
+  apple-silicon:
+    description: "M1+ unified memory — GGUF/MLX path"
+    vram_gb: 16
+    kind: mps
+  cuda-24gb:
+    description: "Generic 24GB workstation (3090/4090)"
+    vram_gb: 24
+    kind: cuda

@@ -1,0 +1,87 @@
+[project]
+name = "quantiv"
+version = "0.1.0a1"
+description = "Agentic system that auto-quantizes open-source LLMs and delivers verified, ready-to-run artifacts."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Quantiv Contributors" }]
+keywords = ["quantization", "llm", "gguf", "gptq", "awq", "hqq"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "typer>=0.12,<0.20",
+  "rich>=13,<15",
+  "pydantic>=2,<3",
+  "pyyaml>=6,<7",
+  "huggingface_hub>=0.23,<1.0",
+  "safetensors>=0.4,<1.0",
+  "psutil>=6,<8",
+  "platformdirs>=4,<5",
+]
+
+[project.optional-dependencies]
+core-ml = [
+  "torch>=2.3,<2.9",
+  "transformers>=4.44,<5.0",
+  "accelerate>=0.33,<2.0",
+  "datasets>=2.20,<5.0",
+]
+# Phase 2 backends (pinned loosely here; locked per-release in uv.lock)
+gguf = ["llama-cpp-python>=0.3,<0.4"]
+bnb = ["bitsandbytes>=0.43,<0.50"]
+hqq = ["hqq>=0.2,<0.3"]
+torchao = ["torchao>=0.7,<0.19"]
+# Phase 3: GPTQ via maintained fork (AutoGPTQ is deprecated — see docs)
+gptq = ["gptqmodel>=2.0,<8.0"]
+# AWQ is deprecated upstream (casper-hansen/AutoAWQ); prefer llm-compressor or GPTQModel AWQ kernels
+awq = ["llm-compressor>=0.5,<1.0"]
+eval = ["lm-eval>=0.4.8,<0.5"]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.5,<0.14",
+  "mypy>=1.10,<2.0",
+]
+all = [
+  "quantiv[core-ml,gguf,bnb,hqq,torchao,gptq,eval,dev]",
+]
+
+[project.scripts]
+quantiv = "quantiv.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quantiv"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "gpu: marks tests requiring a GPU (deselect with '-m \"not gpu\"')",
+  "slow: marks slow/integration tests",
+  "hub: marks tests requiring HuggingFace Hub network access",
+]
+
+[dependency-sources]
+# Prefer CUDA wheels where applicable; see docker/ for CUDA images.

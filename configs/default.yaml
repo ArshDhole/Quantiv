@@ -1,0 +1,16 @@
+# Default Quantiv run configuration
+goal: balanced
+method: auto
+max_ppl_increase: 0.05
+max_quality_drop: 0.02
+max_attempts: 3
+seed: 42
+output_dir: runs
+calibration:
+  default_set: general-text-slice
+  num_samples: 512
+  seq_len: 2048
+evaluation:
+  held_out: wikitext2
+  lm_eval_tasks: ["arc_easy", "hellaswag"]
+  max_samples: 500
