@@ -31,8 +31,8 @@ class HQQQuantizer(Quantizer):
     def quantize(self, request: QuantizeRequest) -> QuantizeResult:
         import torch
         from hqq.core.quantize import BaseQuantizeConfig
-        from hqq.engine.hf import HQQModelForCausalLM
-        from transformers import AutoTokenizer
+        from hqq.models.hf.base import AutoHQQHFModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
         t0 = time.time()
         self.prepare(request)
@@ -45,11 +45,16 @@ class HQQQuantizer(Quantizer):
             quant_scale=False,
         )
         torch_dtype = torch.float16 if device == "cuda" else torch.float32
-        model = HQQModelForCausalLM.from_pretrained(request.model, quant_config=quant_config, torch_dtype=torch_dtype)
-        if device == "cpu":
-            model.to("cpu")
+        # NOTE: we deliberately use the generic AutoHQQHFModel path, not
+        # HQQModelForCausalLM. The arch-specific registry (LlamaHQQ, ...) and
+        # transformers>=5 kwargs both break with transformers 5.x installed
+        # here (Llama patch expects the 4.x rotary_emb attribute).
+        model = AutoModelForCausalLM.from_pretrained(request.model, torch_dtype=torch_dtype)
+        if device == "cuda":
+            model.to("cuda")
+        AutoHQQHFModel.quantize_model(model, quant_config, compute_dtype=torch_dtype, device=device)
         out = Path(request.output_dir)
-        model.save_quantized_(str(out))
+        AutoHQQHFModel.save_quantized(model, str(out))
         try:
             tok = AutoTokenizer.from_pretrained(request.model, trust_remote_code=False)
             tok.save_pretrained(str(out))

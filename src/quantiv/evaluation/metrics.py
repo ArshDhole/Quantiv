@@ -49,10 +49,18 @@ def get_eval_texts(max_samples: int = 32) -> tuple[list[str], str]:
     try:
         from datasets import load_dataset
 
-        ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
-        texts = [t for t in ds["text"] if len(t.strip()) > 50][:max_samples]
-        if texts:
-            return texts, "wikitext-2-raw-v1/test"
+        # Canonical `wikitext` script was removed in datasets>=3; org mirror works.
+        for spec in (
+            ("Salesforce/wikitext", "wikitext-2-raw-v1"),
+            ("wikitext", "wikitext-2-raw-v1"),
+        ):
+            try:
+                ds = load_dataset(*spec, split="test")
+                texts = [t for t in ds["text"] if len(t.strip()) > 50][:max_samples]
+                if texts:
+                    return texts, f"{spec[0]}/{spec[1]}/test"
+            except Exception:
+                continue
     except Exception as e:  # offline or missing dep -> documented fallback
         return (FALLBACK_TEXTS * ((max_samples // len(FALLBACK_TEXTS)) + 1))[:max_samples], (
             f"builtin-fallback ({type(e).__name__})"
@@ -64,9 +72,10 @@ def get_eval_texts(max_samples: int = 32) -> tuple[list[str], str]:
 
 @contextmanager
 def track_peak_memory(device: str):
-    """Yield a callable returning GB observed inside the block.
+    """Yield a callable returning peak GB observed inside the block.
 
-    CUDA: true allocator peak. CPU: process-RSS delta (documented approximation).
+    CUDA: true allocator peak. CPU: max process-RSS delta sampled on a
+    background thread (floor 0 — never negative).
     """
     try:
         import torch
@@ -77,10 +86,30 @@ def track_peak_memory(device: str):
             return
     except ImportError:
         pass
+    import threading
+
     import psutil
 
-    rss0 = psutil.Process().memory_info().rss
-    yield lambda: round((psutil.Process().memory_info().rss - rss0) / 1e9, 3)
+    proc = psutil.Process()
+    rss0 = proc.memory_info().rss
+    peak = [rss0]
+    stop = threading.Event()
+
+    def _sample() -> None:
+        while not stop.wait(0.05):
+            try:
+                rss = proc.memory_info().rss
+            except Exception:
+                break
+            if rss > peak[0]:
+                peak[0] = rss
+
+    t = threading.Thread(target=_sample, daemon=True)
+    t.start()
+    try:
+        yield lambda: round(max(0.0, (peak[0] - rss0)) / 1e9, 3)
+    finally:
+        stop.set()
 
 
 def measure_perplexity(model, tokenizer, texts: list[str], device: str, seq_len: int = 512) -> float:
@@ -208,9 +237,15 @@ def evaluate_hf_model(
         except Exception:
             pass
     try:
-        report.disk_size_gb = disk_size_gb(model_ref) if Path(model_ref).exists() else None
-    except Exception:
-        pass
+        if Path(model_ref).exists():
+            report.disk_size_gb = disk_size_gb(model_ref)
+        else:
+            # HF id: measure the local cached snapshot (no re-download).
+            from huggingface_hub import snapshot_download
+
+            report.disk_size_gb = disk_size_gb(snapshot_download(model_ref, local_files_only=True))
+    except Exception as e:
+        report.warnings.append(f"disk size unavailable: {e}")
     report.elapsed_s = round(time.time() - t0, 2)
     return report
 
@@ -230,5 +265,66 @@ def evaluate_gguf(gguf_path: str | Path) -> EvalReport:
     except Exception as e:
         report.sanity = {"loads": False}
         report.warnings.append(f"gguf load failed: {e}")
+    report.elapsed_s = round(time.time() - t0, 2)
+    return report
+
+
+def evaluate_gguf_full(gguf_path: str | Path, max_samples: int = 16) -> EvalReport:
+    """Full GGUF eval: perplexity (embedded tokenizer) + decode speed + size.
+
+    Caveat (recorded in report): PPL uses the GGUF-embedded tokenizer, so the
+    baseline-vs-quantized delta is approximate when tokenizers differ.
+    """
+    import numpy as np
+
+    t0 = time.time()
+    report = EvalReport(model=str(gguf_path), device="llama.cpp")
+    report.disk_size_gb = disk_size_gb(gguf_path)
+    try:
+        import llama_cpp
+
+        with track_peak_memory("cpu") as peak:
+            m = llama_cpp.Llama(str(gguf_path), logits_all=True, verbose=False)
+            report.sanity = {"loads": True, "n_ctx": m.n_ctx(), "generates": False}
+            texts, source = get_eval_texts(max_samples)
+            report.text_source = source + " (gguf-embedded tokenizer)"
+            nll_sum, count = 0.0, 0
+            width = max(64, m.n_ctx() - 8)
+            for text in texts:
+                ids = m.tokenize(text.encode("utf-8"), add_bos=True)
+                for i in range(0, len(ids) - 1, width):
+                    chunk = ids[i : i + width + 1]
+                    if len(chunk) < 2:
+                        continue
+                    m.reset()
+                    m.eval(chunk)
+                    logits = np.asarray(m.scores[: len(chunk), :], dtype=np.float64)
+                    shifted = logits[:-1]
+                    targets = np.asarray(chunk[1:], dtype=np.int64)
+                    shifted -= shifted.max(axis=1, keepdims=True)
+                    log_probs = shifted - np.log(np.exp(shifted).sum(axis=1, keepdims=True))
+                    nll_sum += float(-log_probs[np.arange(len(targets)), targets].sum())
+                    count += len(targets)
+            if count:
+                report.perplexity = round(float(np.exp(nll_sum / count)), 3)
+                report.ppl_samples = len(texts)
+            # Decode speed on fixed prompts.
+            tps: list[float] = []
+            for prompt in ("The capital of France is", "Quantization means"):
+                t1 = time.time()
+                out = m(prompt, max_tokens=32, temperature=0.0)
+                dt = time.time() - t1
+                gen_ids = m.tokenize(out["choices"][0]["text"].encode("utf-8"))
+                if dt > 0 and gen_ids:
+                    tps.append(len(gen_ids) / dt)
+            if tps:
+                report.tokens_per_sec = round(sum(tps) / len(tps), 2)
+            report.sanity["generates"] = bool(tps)
+            try:
+                report.peak_memory_gb = peak()
+            except Exception:
+                pass
+    except Exception as e:
+        report.warnings.append(f"gguf eval failed: {e}")
     report.elapsed_s = round(time.time() - t0, 2)
     return report

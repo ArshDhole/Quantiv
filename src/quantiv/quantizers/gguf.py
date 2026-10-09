@@ -16,8 +16,7 @@ from platformdirs import user_cache_dir
 
 from quantiv.quantizers.base import BackendStatus, Quantizer, QuantizeRequest, QuantizeResult
 
-LLAMACPP_TAG = "v0.6.0"  # verified 2026-10-09: latest release; convert script at repo root
-CONVERT_URL = f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{LLAMACPP_TAG}/convert_hf_to_gguf.py"
+LLAMACPP_TAG = "v0.6.0"  # verified 2026-10-09: latest release; converter at repo root + conversion/ pkg
 
 SUPPORTED_QUANTS = (
     "Q2_K",
@@ -57,12 +56,41 @@ class GGUQuantizer(Quantizer):
         # Plain k-quants need no calibration. (imatrix path is a Phase 4+ extension.)
         _ = request
 
-    def _convert_script(self) -> Path:
+    def _convert_toolkit(self) -> Path:
+        """Fetch the pinned converter (script + conversion/ package) into the cache.
+
+        Since llama.cpp refactored the converter into a package, the lone script
+        is not enough. File list comes from the pinned tag's git tree (deterministic).
+        """
+        import json
+
         cache = Path(user_cache_dir("quantiv")) / "llamacpp" / LLAMACPP_TAG
         cache.mkdir(parents=True, exist_ok=True)
         script = cache / "convert_hf_to_gguf.py"
-        if not script.exists():
-            with urllib.request.urlopen(CONVERT_URL, timeout=120) as r, open(script, "wb") as f:
+        pkg = cache / "conversion"
+        gguf_pkg = cache / "gguf-py" / "gguf" / "__init__.py"
+        if script.exists() and gguf_pkg.exists() and pkg.is_dir() and any(pkg.iterdir()):
+            return script
+        tree_url = f"https://api.github.com/repos/ggml-org/llama.cpp/git/trees/{LLAMACPP_TAG}?recursive=1"
+        with urllib.request.urlopen(tree_url, timeout=120) as r:
+            tree = json.load(r)["tree"]
+        wanted = [
+            "convert_hf_to_gguf.py",
+            *(
+                x["path"]
+                for x in tree
+                if (x["path"].startswith("conversion/") or x["path"].startswith("gguf-py/gguf/"))
+                and x["type"] == "blob"
+                and x["path"].endswith(".py")
+            ),
+        ]
+        for rel in wanted:
+            dest = cache / rel
+            if dest.exists():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            url = f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{LLAMACPP_TAG}/{rel}"
+            with urllib.request.urlopen(url, timeout=300) as r, open(dest, "wb") as f:
                 f.write(r.read())
         return script
 
@@ -78,9 +106,21 @@ class GGUQuantizer(Quantizer):
         f16 = out / "model-f16.gguf"
         final = out / f"model-{quant}.gguf"
 
-        # 1. HF -> GGUF F16
-        cmd = [sys.executable, str(self._convert_script()), request.model, "--outfile", str(f16), "--outtype", "f16"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        # 0. The converter only accepts local dirs: snapshot HF ids first.
+        src = request.model
+        if not Path(src).exists():
+            from huggingface_hub import snapshot_download
+
+            src = snapshot_download(src)
+
+        # 1. HF -> GGUF F16 (repo-pinned gguf-py first on sys.path)
+        import os
+
+        env = dict(os.environ)
+        toolkit = Path(user_cache_dir("quantiv")) / "llamacpp" / LLAMACPP_TAG
+        env["PYTHONPATH"] = str(toolkit / "gguf-py") + os.pathsep + env.get("PYTHONPATH", "")
+        cmd = [sys.executable, str(self._convert_toolkit()), src, "--outfile", str(f16), "--outtype", "f16"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
         if proc.returncode != 0 or not f16.exists():
             raise RuntimeError(f"GGUF conversion failed:\n{proc.stderr[-3000:]}")
 

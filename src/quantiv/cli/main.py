@@ -128,7 +128,7 @@ def run(
     """End-to-end: analyze -> quantize -> evaluate baseline + quantized -> report."""
     from datetime import datetime
 
-    from quantiv.evaluation import evaluate_gguf, evaluate_hf_model
+    from quantiv.evaluation import evaluate_gguf_full, evaluate_hf_model
     from quantiv.packaging.manifest import build_manifest, write_manifest
     from quantiv.packaging.report import write_report
     from quantiv.quantizers import run_quantization
@@ -176,7 +176,7 @@ def run(
     console.print("Evaluating quantized model...")
     if result.method == "gguf":
         ggufs = sorted(quant_dir.glob("*.gguf"))
-        quant_report = evaluate_gguf(ggufs[0]) if ggufs else baseline_report
+        quant_report = evaluate_gguf_full(ggufs[0], max_samples=max_samples) if ggufs else baseline_report
     else:
         quant_report = evaluate_hf_model(result.output_dir, device=device, max_samples=max_samples)
     console.print(f"Quantized ppl={quant_report.perplexity} tok/s={quant_report.tokens_per_sec}")
@@ -212,7 +212,7 @@ def eval(
     """Evaluate quantized vs baseline and write a comparison report."""
     from datetime import datetime
 
-    from quantiv.evaluation import evaluate_gguf, evaluate_hf_model
+    from quantiv.evaluation import evaluate_gguf_full, evaluate_hf_model
     from quantiv.packaging.report import write_report
     from quantiv.quantizers.base import resolve_device
 
@@ -223,15 +223,16 @@ def eval(
     base = evaluate_hf_model(baseline, device=device, max_samples=max_samples)
     console.print(f"Evaluating {quantized_path} ...")
     qp = Path(quantized_path)
+    qmethod = "external"
     if qp.is_file() and qp.suffix == ".gguf":
-        quant = evaluate_gguf(qp)
+        quant = evaluate_gguf_full(qp, max_samples=max_samples)
+        qmethod = "gguf"
     elif qp.is_dir() and list(qp.glob("*.gguf")):
-        quant = evaluate_gguf(sorted(qp.glob("*.gguf"))[0])
+        quant = evaluate_gguf_full(sorted(qp.glob("*.gguf"))[0], max_samples=max_samples)
+        qmethod = "gguf"
     else:
         quant = evaluate_hf_model(quantized_path, device=device, max_samples=max_samples)
-    json_path, md_path = write_report(
-        run_dir, base, quant, {"method": "external", "quant": qp.name, "device": device}, {}
-    )
+    json_path, md_path = write_report(run_dir, base, quant, {"method": qmethod, "quant": qp.name, "device": device}, {})
     console.print(f"[green]Done.[/green] Report: {md_path} | JSON: {json_path}")
 
 

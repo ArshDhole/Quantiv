@@ -1,14 +1,17 @@
 # Quantiv — auto-quantize open-source LLMs
 
-> **Status: Phase 1 (Foundation) in progress.** See `Quantiv_Master_Prompt.md` for the full project vision.
+> **Status: Phase 2 (first backends + baseline eval) done.** See `Quantiv_Master_Prompt.md` for the full project vision.
 
 Quantiv takes a model (HF repo ID or local path) + a goal ("run on 8GB GPU", "smallest size <2% loss") and produces a **verified, quantized, ready-to-run artifact** with real measured quality/speed/memory numbers. An LLM-driven planner orchestrates deterministic quantization tooling — the agent decides, the tools do the math, and **no metric is ever fabricated**.
 
-## Phase 1 — what works today
+## What works today (v0.2)
 
 - `quantiv doctor` — environment / driver / dependency checks
 - `quantiv analyze <model>` — arch, params, dtype, license, tokenizer, memory estimates (local dir or HF Hub, no full weight download)
-- `quantiv plan` / `run` / `eval` / `compare` / `package` — CLI stubs with schema validation (full impl in Phases 2–6)
+- `quantiv run <model> --method hqq|gguf|bnb|auto` — end-to-end: quantize, evaluate baseline + quantized (perplexity on WikiText-2, tokens/sec, peak memory, disk size, sanity), write `report.md`/`report.json` + manifest with quality-gate verdict
+- `quantiv eval <quantized> --baseline <model>` — standalone comparison report (HF or GGUF artifacts)
+- `quantiv plan` — ranked candidates via rules engine; `compare`/`package` still stubs (Phases 4/6)
+- Backends: **HQQ** (4-bit, CPU+CUDA), **GGUF** (Q2_K..Q8_0 via pinned llama.cpp v0.6.0 toolkit + built bindings), **bitsandbytes** (8-bit/NF4, CUDA-only — correctly reports unavailable on CPU boxes)
 - `--no-agent` rules-engine path is the default (agent layer lands in Phase 5)
 
 ## Quickstart
