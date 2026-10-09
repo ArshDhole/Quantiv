@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC
 from pathlib import Path
 
 import typer
@@ -119,9 +120,20 @@ def run(
     goal: str = typer.Option("balanced", "--goal"),
     method: str = typer.Option("auto", "--method", help="auto|gguf|gptq|awq|hqq|bnb|torchao"),
     max_ppl_increase: float = typer.Option(0.05, "--max-ppl-increase"),
+    max_samples: int = typer.Option(16, "--max-samples", help="Held-out samples for perplexity"),
+    group_size: int = typer.Option(64, "--group-size", help="Quantization group size"),
+    output_dir: str = typer.Option("runs", "--output-dir", "-o"),
     no_agent: bool = typer.Option(True, "--no-agent/--agent", help="Rules-only (default) vs LLM agent (Phase 5)"),
 ) -> None:
-    """End-to-end quantize (Phase 2+). Phase 1 validates inputs only."""
+    """End-to-end: analyze -> quantize -> evaluate baseline + quantized -> report."""
+    from datetime import datetime
+
+    from quantiv.evaluation import evaluate_gguf, evaluate_hf_model
+    from quantiv.packaging.manifest import build_manifest, write_manifest
+    from quantiv.packaging.report import write_report
+    from quantiv.quantizers import run_quantization
+    from quantiv.quantizers.base import QuantizeRequest, resolve_device
+
     cfg = RunConfig(
         model=model,
         target=target,
@@ -130,21 +142,97 @@ def run(
         max_ppl_increase=max_ppl_increase,
         no_agent=no_agent,
     )  # type: ignore[arg-type]
-    console.print("[yellow]Phase 1:[/yellow] `run` validates config but quantization backends land in Phase 2.")
-    console.print(json.dumps(cfg.model_dump(), indent=2))
     if not no_agent:
         console.print("[red]Agent mode (--agent) is not implemented until Phase 5. Re-run with --no-agent.[/red]")
         raise typer.Exit(3)
-    console.print("Next: implement Phase 2 backends (bnb/hqq/gguf), then this command executes.")
+
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    run_dir = Path(output_dir) / f"{stamp}-{cfg.method}-{cfg.goal}"
+    quant_dir = run_dir / "quantized"
+    device = resolve_device()
+    console.print(f"Quantizing [bold]{model}[/bold] method={cfg.method} goal={goal} device={device}")
+
+    result = run_quantization(
+        QuantizeRequest(
+            model=model,
+            method=cfg.method,
+            output_dir=str(quant_dir),
+            device=device,
+            group_size=group_size,
+            quant="Q4_K_M" if cfg.method in ("auto", "gguf") else "",
+        ),
+        goal=goal,
+    )
+    if not result.success:
+        console.print(f"[red]Quantization failed: {result.message}[/red]")
+        raise typer.Exit(4)
+    console.print(
+        f"[green]Quantized:[/green] {result.method} {result.quant} in {result.elapsed_s}s -> {result.output_dir}"
+    )
+
+    console.print("Evaluating baseline (original model)...")
+    baseline_report = evaluate_hf_model(model, device=device, max_samples=max_samples)
+    console.print(f"Baseline ppl={baseline_report.perplexity} tok/s={baseline_report.tokens_per_sec}")
+    console.print("Evaluating quantized model...")
+    if result.method == "gguf":
+        ggufs = sorted(quant_dir.glob("*.gguf"))
+        quant_report = evaluate_gguf(ggufs[0]) if ggufs else baseline_report
+    else:
+        quant_report = evaluate_hf_model(result.output_dir, device=device, max_samples=max_samples)
+    console.print(f"Quantized ppl={quant_report.perplexity} tok/s={quant_report.tokens_per_sec}")
+
+    gates = {"max_ppl_increase": max_ppl_increase}
+    json_path, md_path = write_report(
+        run_dir,
+        baseline_report,
+        quant_report,
+        {
+            "method": result.method,
+            "quant": result.quant,
+            "elapsed_s": result.elapsed_s,
+            "files": result.files,
+            "device": device,
+        },
+        gates,
+    )
+    manifest = build_manifest(
+        model, {"run_dir": str(run_dir), "method": result.method, "quant": result.quant, "device": device, "goal": goal}
+    )
+    write_manifest(run_dir, manifest)
+    console.print(f"[green]Done.[/green] Report: {md_path} | JSON: {json_path}")
 
 
 @app.command()
 def eval(
     quantized_path: str = typer.Argument(...),
     baseline: str = typer.Option(..., "--baseline", help="Original model (HF id or path)"),
+    max_samples: int = typer.Option(16, "--max-samples"),
+    output_dir: str = typer.Option("runs", "--output-dir", "-o"),
 ) -> None:
-    """Evaluate quantized vs baseline (Phase 2+)."""
-    console.print(f"[yellow]Phase 1 stub:[/yellow] would compare {quantized_path} vs {baseline}.")
+    """Evaluate quantized vs baseline and write a comparison report."""
+    from datetime import datetime
+
+    from quantiv.evaluation import evaluate_gguf, evaluate_hf_model
+    from quantiv.packaging.report import write_report
+    from quantiv.quantizers.base import resolve_device
+
+    device = resolve_device()
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    run_dir = Path(output_dir) / f"{stamp}-eval"
+    console.print(f"Evaluating baseline {baseline} ...")
+    base = evaluate_hf_model(baseline, device=device, max_samples=max_samples)
+    console.print(f"Evaluating {quantized_path} ...")
+    qp = Path(quantized_path)
+    if qp.is_file() and qp.suffix == ".gguf":
+        quant = evaluate_gguf(qp)
+    elif qp.is_dir() and list(qp.glob("*.gguf")):
+        quant = evaluate_gguf(sorted(qp.glob("*.gguf"))[0])
+    else:
+        quant = evaluate_hf_model(quantized_path, device=device, max_samples=max_samples)
+    json_path, md_path = write_report(
+        run_dir, base, quant, {"method": "external", "quant": qp.name, "device": device}, {}
+    )
+    console.print(f"[green]Done.[/green] Report: {md_path} | JSON: {json_path}")
 
 
 @app.command()

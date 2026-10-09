@@ -25,9 +25,9 @@ def test_plan_lists_candidates(tiny_model_dir):
     assert "Q4_K_M" in r.output
 
 
-def test_run_stub_validates():
-    r = runner.invoke(app, ["run", "some-model", "--target", "cpu-only", "--goal", "min-size"])
-    assert r.exit_code == 0
+def test_run_unknown_method_fails():
+    r = runner.invoke(app, ["run", "some-model", "--method", "bogus-backend"])
+    assert r.exit_code != 0
 
 
 def test_run_agent_refused():
