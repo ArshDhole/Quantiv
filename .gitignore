@@ -11,6 +11,7 @@ build/
 .env
 runs/
 outputs/
+Quantiv_Master_Prompt.md
 *.gguf
 *.safetensors
 !tests/**/*.safetensors

@@ -1,6 +1,6 @@
 # Quantiv — auto-quantize open-source LLMs
 
-> **Status: Phase 2 (first backends + baseline eval) done.** See `Quantiv_Master_Prompt.md` for the full project vision.
+> **Status: Phase 2 (first backends + baseline eval) done.** See `docs/` for the roadmap and support matrix.
 
 Quantiv takes a model (HF repo ID or local path) + a goal ("run on 8GB GPU", "smallest size <2% loss") and produces a **verified, quantized, ready-to-run artifact** with real measured quality/speed/memory numbers. An LLM-driven planner orchestrates deterministic quantization tooling — the agent decides, the tools do the math, and **no metric is ever fabricated**.
 
@@ -67,7 +67,7 @@ docs/
 1. No fabricated metrics — every number comes from a real run.
 2. Reproducibility — seeds, hashes, versions, source revision in manifest.
 3. License safety — never auto-upload gated/restrictive models.
-4. See `Quantiv_Master_Prompt.md` §9 for the full list.
+4. Fail loudly with suggested fixes; testability; resource awareness; honest limitations.
 
 ## License
 
