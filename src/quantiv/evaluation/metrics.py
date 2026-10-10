@@ -112,12 +112,20 @@ def track_peak_memory(device: str):
         stop.set()
 
 
-def measure_perplexity(model, tokenizer, texts: list[str], device: str, seq_len: int = 512) -> float:
+def measure_perplexity(
+    model,
+    tokenizer,
+    texts: list[str],
+    device: str,
+    seq_len: int = 512,
+    progress=None,
+) -> float:
     """Sliding-window perplexity. Standard NLL over concatenated token stream."""
     import torch
 
     enc = tokenizer("\n\n".join(texts), return_tensors="pt")
     input_ids = enc.input_ids.to(device)
+    total = max(1, input_ids.size(1))
     nll_sum, count = 0.0, 0
     model.eval()
     with torch.no_grad():
@@ -128,6 +136,8 @@ def measure_perplexity(model, tokenizer, texts: list[str], device: str, seq_len:
             out = model(chunk, labels=chunk)
             nll_sum += out.loss.item() * chunk.size(1)
             count += chunk.size(1)
+            if progress is not None:
+                progress(min(1.0, (i + chunk.size(1)) / total))
     return math.exp(nll_sum / count)
 
 
@@ -215,7 +225,11 @@ def _load_quantized_artifact(model_ref: str, dtype, device: str, report: EvalRep
 
 
 def evaluate_hf_model(
-    model_ref: str, device: str = "cpu", max_samples: int = 32, trust_remote_code: bool = False
+    model_ref: str,
+    device: str = "cpu",
+    max_samples: int = 32,
+    trust_remote_code: bool = False,
+    progress=None,
 ) -> EvalReport:
     """Full eval of an HF-format model (id or dir). Numbers are all measured."""
     import torch
@@ -237,7 +251,7 @@ def evaluate_hf_model(
         texts, source = get_eval_texts(max_samples)
         report.text_source = source
         try:
-            report.perplexity = round(measure_perplexity(model, tok, texts, device), 3)
+            report.perplexity = round(measure_perplexity(model, tok, texts, device, progress=progress), 3)
             report.ppl_samples = len(texts)
         except Exception as e:
             report.warnings.append(f"perplexity failed: {e}")

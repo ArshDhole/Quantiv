@@ -29,6 +29,66 @@ def _db(path: Path) -> sqlite3.Connection:
     return conn
 
 
+# Last real-progress timestamps (in-memory; restarts are covered by startup cleanup).
+_progress: dict[str, float] = {}
+_stall_min: dict[str, float] = {}
+_watchdog_on = False
+
+
+def mark_startup_interruptions(db_path: Path) -> int:
+    """Rows left 'running' by a dead process can never progress — fail them loudly."""
+    conn = _db(db_path)
+    cur = conn.execute(
+        "UPDATE jobs SET status='failed', error='server restarted while job was running', updated=? "
+        "WHERE status='running'",
+        (time.time(),),
+    )
+    conn.commit()
+    conn.close()
+    return cur.rowcount
+
+
+def check_stalls(db_path: Path, now: float | None = None, default_stall_min: float = 30) -> list[str]:
+    """Fail 'running' jobs with no real progress for longer than their budget.
+
+    Returns the flagged job ids. Pure function of DB + progress map (testable).
+    """
+    now = time.time() if now is None else now
+    conn = _db(db_path)
+    rows = conn.execute("SELECT id,created FROM jobs WHERE status='running'").fetchall()
+    flagged = []
+    for job_id, created in rows:
+        last = _progress.get(job_id, created or now)
+        budget = _stall_min.get(job_id, default_stall_min) * 60
+        if budget > 0 and now - last > budget:
+            conn.execute(
+                "UPDATE jobs SET status='failed', error=?, updated=? WHERE id=?",
+                (f"auto-flagged stalled: no progress for {(now - last) / 60:.0f} min", now, job_id),
+            )
+            flagged.append(job_id)
+    conn.commit()
+    conn.close()
+    return flagged
+
+
+def start_watchdog(db_path: Path, interval_s: int = 60) -> None:
+    """Background stall sweeper (daemon). Started once per process."""
+    global _watchdog_on
+    if _watchdog_on:
+        return
+    _watchdog_on = True
+
+    def loop() -> None:
+        while True:
+            time.sleep(interval_s)
+            try:
+                check_stalls(db_path)
+            except Exception:
+                pass
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def _result_summary(run_dir: str) -> str:
     """One-line verdict for the jobs table, read from report.json when present."""
     if not run_dir:
@@ -58,6 +118,8 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
     state = Path(state_dir)
     state.mkdir(parents=True, exist_ok=True)
     db_path = state / "jobs.db"
+    mark_startup_interruptions(db_path)
+    start_watchdog(db_path)
 
     app = FastAPI(title="Quantiv")
 
@@ -69,16 +131,25 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
         conn.close()
 
     def run_job(
-        job_id: str, model: str, goal: str, method: str,
-        max_samples: int, max_attempts: int, bits: int,
+        job_id: str,
+        model: str,
+        goal: str,
+        method: str,
+        max_samples: int,
+        max_attempts: int,
+        bits: int,
+        stall_after_min: float,
     ) -> None:
         from quantiv.planner.pipeline import run_pipeline
         from quantiv.quantizers.base import resolve_device
 
         logs: list[str] = []
+        _progress[job_id] = time.time()
+        _stall_min[job_id] = stall_after_min
 
         def on_step(m: str) -> None:
             logs.append(m)
+            _progress[job_id] = time.time()
             set_job(job_id, log="\n".join(logs[-200:]))
 
         set_job(job_id, log=f"job accepted · {model} · warming up engine…")
@@ -98,6 +169,9 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
             set_job(job_id, status="done", run_dir=out["run_dir"])
         except Exception as e:  # noqa: BLE001
             set_job(job_id, status="failed", error=f"{type(e).__name__}: {e}")
+        finally:
+            _progress.pop(job_id, None)
+            _stall_min.pop(job_id, None)
 
     @app.get("/api/backends")
     def backends() -> JSONResponse:
@@ -181,6 +255,13 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
         max_attempts = max(1, min(5, int(payload.get("max_attempts", 3) or 3)))
         bits = int(payload.get("bits", 4) or 4)
         bits = bits if bits in (2, 3, 4, 5, 6, 8) else 4
+        stall_after = payload.get("stall_after_min", 30)
+        try:
+            stall_after_min = float(stall_after if stall_after is not None else 30)
+        except (TypeError, ValueError):
+            stall_after_min = 30.0
+        if stall_after_min != 0:
+            stall_after_min = min(180.0, max(5.0, stall_after_min))
         threading.Thread(
             target=run_job,
             args=(
@@ -191,6 +272,7 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
                 max_samples,
                 max_attempts,
                 bits,
+                stall_after_min,
             ),
             daemon=True,
         ).start()

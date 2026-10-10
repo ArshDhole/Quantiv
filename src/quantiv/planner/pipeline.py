@@ -7,6 +7,7 @@ report shows the full ladder, not just the winner.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -68,12 +69,18 @@ def build_ladder(method: str, bits: int, goal: str, max_attempts: int = 3) -> li
     return unique[:cap]
 
 
-def _evaluate_quantized(result_method: str, quant_dir: Path, device: str, max_samples: int) -> EvalReport:
+def _evaluate_quantized(
+    result_method: str,
+    quant_dir: Path,
+    device: str,
+    max_samples: int,
+    progress=None,
+) -> EvalReport:
     if result_method == "gguf":
         ggufs = sorted(quant_dir.glob("*.gguf"))
         if ggufs:
             return evaluate_gguf_full(ggufs[0], max_samples=max_samples)
-    return evaluate_hf_model(str(quant_dir), device=device, max_samples=max_samples)
+    return evaluate_hf_model(str(quant_dir), device=device, max_samples=max_samples, progress=progress)
 
 
 def run_pipeline(
@@ -96,11 +103,29 @@ def run_pipeline(
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     ladder = build_ladder(method, bits, goal, max_attempts)
+
+    def heartbeat(label: str):
+        """Throttled progress relay: log at most every 60s per label."""
+        last = {"t": 0.0, "f": -1.0}
+
+        def emit(frac: float) -> None:
+            now = time.time()
+            if on_step and (frac >= 1.0 or frac - last["f"] >= 0.25 or now - last["t"] >= 60):
+                last["f"], last["t"] = frac, now
+                on_step(f"{label} {frac:.0%}…")
+
+        return emit
+
     if on_step:
         plan = ", ".join(f"{s['method']}/{s['bits']}b{' +mixed' if s['mixed'] else ''}" for s in ladder)
         on_step(f"plan: {plan} (max {len(ladder)} attempts)")
         on_step("analyzing + loading baseline model…")
-    baseline = evaluate_hf_model(model, device=device, max_samples=max_samples)
+    baseline = evaluate_hf_model(
+        model,
+        device=device,
+        max_samples=max_samples,
+        progress=heartbeat("baseline eval") if on_step else None,
+    )
     if on_step:
         on_step(f"baseline ppl={baseline.perplexity}")
 
@@ -133,7 +158,13 @@ def run_pipeline(
             ),
             goal=goal,
         )
-        quant = _evaluate_quantized(result.method, qdir, device, max_samples)
+        quant = _evaluate_quantized(
+            result.method,
+            qdir,
+            device,
+            max_samples,
+            progress=heartbeat(f"attempt {i} eval") if on_step else None,
+        )
         inc = None
         gate = None
         if baseline.perplexity and quant.perplexity:

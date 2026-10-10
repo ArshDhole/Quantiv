@@ -1,10 +1,13 @@
 """Phase 6 tests: model card, license gate, compare/package CLI, dashboard API."""
 
 import json
+import sqlite3
+import time
 
 from typer.testing import CliRunner
 
 from quantiv.cli.main import app
+from quantiv.dashboard.app import _progress, _stall_min, check_stalls
 from quantiv.packaging import build_model_card, check_publish_allowed
 
 runner = CliRunner()
@@ -77,10 +80,14 @@ def test_build_artifact_zip(tmp_path):
     qdir.mkdir(parents=True)
     (qdir / "qmodel.pt").write_bytes(b"fake-weights")
     (qdir / "config.json").write_text("{}")
-    (run / "report.json").write_text(json.dumps({
-        "quant": {"method": "hqq", "quant": "4bit", "attempt_dir": str(qdir)},
-        "comparison": {"gate_pass": True},
-    }))
+    (run / "report.json").write_text(
+        json.dumps(
+            {
+                "quant": {"method": "hqq", "quant": "4bit", "attempt_dir": str(qdir)},
+                "comparison": {"gate_pass": True},
+            }
+        )
+    )
     (run / "report.md").write_text("# report")
     archive = build_artifact_zip(run)
     names = zipfile.ZipFile(archive).namelist()
@@ -103,9 +110,13 @@ def test_download_endpoint_serves_zip(tmp_path, monkeypatch):
     qdir = run / "attempt1-hqq"
     qdir.mkdir(parents=True)
     (qdir / "model.gguf").write_bytes(b"fake")
-    (run / "report.json").write_text(json.dumps({
-        "quant": {"method": "gguf", "attempt_dir": str(qdir)},
-    }))
+    (run / "report.json").write_text(
+        json.dumps(
+            {
+                "quant": {"method": "gguf", "attempt_dir": str(qdir)},
+            }
+        )
+    )
     client.get("/jobs")  # ensure jobs table exists before raw insert
     conn = sqlite3.connect(dash / "jobs.db")
     conn.execute(
@@ -118,3 +129,58 @@ def test_download_endpoint_serves_zip(tmp_path, monkeypatch):
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
     assert len(r.content) > 0
+
+
+def _seed_running(db_path, job_id="stalled1", age_min=60):
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, model TEXT, goal TEXT, method TEXT,"
+        " status TEXT, created REAL, updated REAL, run_dir TEXT, error TEXT, log TEXT)"
+    )
+    now = time.time()
+    conn.execute(
+        "INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (job_id, "m", "balanced", "hqq", "running", now - age_min * 60, now - age_min * 60, "", "", "old log"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_startup_cleanup_fails_interrupted(tmp_path):
+    from quantiv.dashboard import create_app
+
+    db = tmp_path / "dash" / "jobs.db"
+    db.parent.mkdir(parents=True)
+    _seed_running(db)
+    create_app(tmp_path / "dash")  # startup cleanup runs on creation
+    conn = sqlite3.connect(db)
+    row = conn.execute("SELECT status,error FROM jobs WHERE id='stalled1'").fetchone()
+    conn.close()
+    assert row[0] == "failed" and "restarted" in row[1]
+
+
+def test_check_stalls_flags_silent_job(tmp_path):
+    db = tmp_path / "jobs.db"
+    _seed_running(db, age_min=60)
+    _progress["stalled1"] = time.time() - 3600
+    _stall_min["stalled1"] = 30
+    try:
+        flagged = check_stalls(db, default_stall_min=30)
+        assert flagged == ["stalled1"]
+        conn = sqlite3.connect(db)
+        row = conn.execute("SELECT status,error FROM jobs WHERE id='stalled1'").fetchone()
+        conn.close()
+        assert row[0] == "failed" and "no progress" in row[1]
+    finally:
+        _progress.pop("stalled1", None)
+        _stall_min.pop("stalled1", None)
+
+
+def test_check_stalls_spares_fresh_job(tmp_path):
+    db = tmp_path / "jobs.db"
+    _seed_running(db, job_id="fresh", age_min=2)
+    _progress["fresh"] = time.time()
+    try:
+        assert check_stalls(db, default_stall_min=30) == []
+    finally:
+        _progress.pop("fresh", None)
