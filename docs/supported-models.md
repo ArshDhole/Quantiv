@@ -18,12 +18,18 @@ Takeaway: HQQ keeps quality better; GGUF is 2.5× smaller at near-baseline CPU s
 
 ## SmolLM2-135M (llama, apache-2.0)
 
-WikiText-2 test, 8 samples. Baseline (bf16): **ppl 21.466, 19.8 tok/s, 0.27 GB**.
+WikiText-2 test, 8 samples. Baselines: CPU bf16 **ppl 21.466, 19.8 tok/s, 0.27 GB** · CUDA bf16 **ppl 21.466, 39.5 tok/s**.
 
 | Backend | Quant | PPL | ΔPPL | tok/s | Disk | Gate (5%) |
 |---|---|---|---|---|---|---|
-| HQQ | 4bit-g64 | 28.136 | +40.7% | 5.48 | 0.18 GB | FAIL |
-| GGUF (llama.cpp v0.6.0) | Q4_K_M | 29.761 | +38.6% | 23.47 | 0.11 GB | FAIL |
+| HQQ (CPU) | 4bit-g64 | 28.136 | +40.7% | 5.48 | 0.18 GB | FAIL |
+| GGUF (CPU) | Q4_K_M | 29.761 | +38.6% | 23.47 | 0.11 GB | FAIL |
+| GPTQ (CUDA) | 4bit-g64 + cal | 24.867 | +15.8% | 20.83 | 0.12 GB | FAIL |
+
+Takeaway: calibration (GPTQ) more than halves the quality gap vs calibration-free 4-bit on this model.
+AWQ: implemented but blocked — llmcompressor 0.14's tracer is incompatible with transformers 5.x forwards
+(float activations fed as input_ids, systemic), and gptqmodel's AWQ kernel needs a CUDA Toolkit JIT build.
+Tracked as experimental; "GPTQ or AWQ" DoD requirement is met by GPTQ.
 
 ## Backend × architecture matrix
 
@@ -31,9 +37,9 @@ WikiText-2 test, 8 samples. Baseline (bf16): **ppl 21.466, 19.8 tok/s, 0.27 GB**
 |---|---|---|---|---|---|---|
 | HQQ | ✅ | ✅ | 🧪 | 🧪 | 🧪 | torch (CPU ok) |
 | GGUF k-quants | ✅ | ✅ | 🧪 | 🧪 | 🧪 | llama-cpp build + converter arch support |
+| GPTQ (gptqmodel) | ✅ | 🧪 | 🧪 | 🧪 | 🧪 | CUDA GPU + calibration |
+| AWQ (gptqmodel) | ⚠️ blocked (JIT kernel needs CUDA Toolkit build) | ⚠️ | 🧪 | 🧪 | 🧪 | CUDA GPU + toolkit + calibration |
 | bitsandbytes 8-bit/NF4 | 🧪 | 🧪 | 🧪 | 🧪 | 🧪 | CUDA GPU |
-| GPTQ | Phase 3 | Phase 3 | Phase 3 | Phase 3 | Phase 3 | CUDA + calibration |
-| AWQ | Phase 3 | Phase 3 | Phase 3 | Phase 3 | Phase 3 | CUDA + calibration |
 
 ## Notes
 
