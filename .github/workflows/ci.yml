@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # CPU-only scope: GPU-gated tests skip via skipif; CUDA-only backends
+      # probe unavailable and registry tests assert exactly that.
+      # Everything below is a prebuilt wheel on Linux/Windows (no compilers).
+      - name: Install ML stack (CPU wheels)
+        run: >
+          uv pip install --system torch --extra-index-url
+          https://download.pytorch.org/whl/cpu
+      - name: Install Quantiv + backends
+        run: >
+          uv pip install --system -e
+          ".[dev,core-ml,gguf,bnb,hqq,calib,web]"
+      - name: Lint
+        run: uvx ruff check src tests && uvx ruff format --check src tests
+      - name: Test
+        run: python -m pytest tests/ -q
