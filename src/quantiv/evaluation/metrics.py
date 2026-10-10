@@ -190,6 +190,30 @@ def sanity_checks(model, tokenizer, device: str) -> dict:
     return result
 
 
+def _load_quantized_artifact(model_ref: str, dtype, device: str, report: EvalReport):
+    """Reload a backend-produced artifact with its own loader.
+
+    Tries HQQ then GPTQModel; raises the original-style error if none fit.
+    Each fallback is recorded in the report (method transparency).
+    """
+    try:
+        from hqq.models.hf.base import AutoHQQHFModel
+
+        model = AutoHQQHFModel.from_quantized(model_ref, compute_dtype=dtype, device=device)
+        report.warnings.append("loaded via HQQ from_quantized (non-standard weights)")
+        return model
+    except Exception:
+        pass
+    try:
+        from gptqmodel import GPTQModel
+
+        model = GPTQModel.from_quantized(model_ref, device=device if device == "cuda" else "cpu")
+        report.warnings.append("loaded via GPTQModel.from_quantized (non-standard weights)")
+        return model
+    except Exception as e:
+        raise RuntimeError(f"Could not load '{model_ref}' with plain transformers, HQQ, or GPTQModel: {e}") from e
+
+
 def evaluate_hf_model(
     model_ref: str, device: str = "cpu", max_samples: int = 32, trust_remote_code: bool = False
 ) -> EvalReport:
@@ -209,12 +233,7 @@ def evaluate_hf_model(
                 model_ref, torch_dtype=dtype, trust_remote_code=trust_remote_code
             ).to(device)
         except Exception:
-            # Possibly an HQQ-quantized artifact (custom safetensors layout):
-            # reload via HQQ's generic loader instead of failing the run.
-            from hqq.models.hf.base import AutoHQQHFModel
-
-            model = AutoHQQHFModel.from_quantized(model_ref, compute_dtype=dtype, device=device)
-            report.warnings.append("loaded via HQQ from_quantized (non-standard weights)")
+            model = _load_quantized_artifact(model_ref, dtype, device, report)
         texts, source = get_eval_texts(max_samples)
         report.text_source = source
         try:

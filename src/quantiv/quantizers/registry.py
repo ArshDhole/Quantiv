@@ -7,11 +7,13 @@ from quantiv.quantizers.base import BackendStatus, Quantizer, QuantizeRequest, Q
 
 def _backend_classes() -> dict[str, type[Quantizer]]:
     # Local imports so `quantiv.quantizers` stays import-safe without torch.
+    from quantiv.quantizers.awq import AWQQuantizer
     from quantiv.quantizers.bnb import BNBQuantizer
     from quantiv.quantizers.gguf import GGUQuantizer
+    from quantiv.quantizers.gptq import GPTQQuantizer
     from quantiv.quantizers.hqq import HQQQuantizer
 
-    return {c.name: c for c in (HQQQuantizer, BNBQuantizer, GGUQuantizer)}
+    return {c.name: c for c in (GPTQQuantizer, AWQQuantizer, HQQQuantizer, BNBQuantizer, GGUQuantizer)}
 
 
 def available_backends() -> dict[str, BackendStatus]:
@@ -40,11 +42,11 @@ def auto_select(request: QuantizeRequest, goal: str = "balanced") -> str:
     """Pick the first available backend for the goal. Deterministic; tested."""
     avail = available_backends()
     goal_order = {
-        "min-size": ["gguf", "hqq", "bnb"],
-        "max-quality": ["bnb", "gguf", "hqq"],
-        "cpu-efficient": ["gguf", "hqq", "bnb"],
-        "min-latency": ["gguf", "hqq", "bnb"],
-        "balanced": ["hqq", "gguf", "bnb"],
+        "min-size": ["gguf", "gptq", "awq", "hqq", "bnb"],
+        "max-quality": ["awq", "gptq", "bnb", "gguf", "hqq"],
+        "cpu-efficient": ["gguf", "hqq", "gptq", "awq", "bnb"],
+        "min-latency": ["gguf", "awq", "gptq", "hqq", "bnb"],
+        "balanced": ["gptq", "awq", "hqq", "gguf", "bnb"],
     }
     order = goal_order.get(goal, goal_order["balanced"])
     for name in order:

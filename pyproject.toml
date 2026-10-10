@@ -29,20 +29,21 @@ dependencies = [
 
 [project.optional-dependencies]
 core-ml = [
-  "torch>=2.3,<2.9",
-  "transformers>=4.44,<5.0",
+  "torch>=2.10",
+  "transformers>=5.15,<6.0",
   "accelerate>=0.33,<2.0",
-  "datasets>=2.20,<5.0",
+  "datasets>=4.0,<5.0",
 ]
-# Phase 2 backends (pinned loosely here; locked per-release in uv.lock)
-gguf = ["llama-cpp-python>=0.3,<0.4"]
-bnb = ["bitsandbytes>=0.43,<0.50"]
+# Phase 2 backends (verified installs pinned in docs/supported-models.md)
+gguf = ["llama-cpp-python>=0.3,<0.4", "gguf>=0.15", "sentencepiece>=0.2"]
+bnb = ["bitsandbytes>=0.50,<0.51"]
 hqq = ["hqq>=0.2,<0.3"]
-torchao = ["torchao>=0.7,<0.19"]
-# Phase 3: GPTQ via maintained fork (AutoGPTQ is deprecated — see docs)
-gptq = ["gptqmodel>=2.0,<8.0"]
-# AWQ is deprecated upstream (casper-hansen/AutoAWQ); prefer llm-compressor or GPTQModel AWQ kernels
-awq = ["llm-compressor>=0.5,<1.0"]
+torchao = ["torchao>=0.18,<0.19"]
+# Phase 3: GPTQ via maintained fork (AutoGPTQ is deprecated)
+gptq = ["gptqmodel>=7.5,<8.0"]
+# AWQ via llmcompressor (vLLM project; note: no hyphen. casper-hansen/AutoAWQ is deprecated)
+awq = ["llmcompressor>=0.14,<1.0"]
+calib = ["datasets>=4.0,<5.0"]
 eval = ["lm-eval>=0.4.8,<0.5"]
 dev = [
   "pytest>=8,<9",
