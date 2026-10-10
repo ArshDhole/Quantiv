@@ -138,11 +138,19 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
             }
         )
 
+    frontend_dist = Path(__file__).parent.parent.parent.parent / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+
     @app.get("/")
     def index():
         from fastapi.responses import FileResponse
 
-        return FileResponse(Path(__file__).parent / "static" / "index.html")
+        react = Path(__file__).parent.parent.parent.parent / "frontend" / "dist" / "index.html"
+        legacy = Path(__file__).parent / "static" / "index.html"
+        return FileResponse(react if react.exists() else legacy)
 
     @app.post("/jobs")
     def submit(payload: dict) -> JSONResponse:
