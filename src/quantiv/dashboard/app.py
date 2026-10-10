@@ -102,6 +102,36 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
              for k, v in available_backends().items()}
         )
 
+    @app.get("/api/plan")
+    def plan_preview(model: str = "", goal: str = "balanced", target: str = "local") -> JSONResponse:
+        """Ranked plan preview before committing to a run (config-only, no weights)."""
+        from quantiv.analyzer import analyze_model
+        from quantiv.hardware import get_target_profile, profile_hardware
+        from quantiv.planner.rank import rank_candidates
+        from quantiv.quantizers import available_backends
+
+        try:
+            tgt = get_target_profile(target)
+        except KeyError:
+            tgt = {"vram_gb": None}
+        hw = profile_hardware()
+        vram = tgt.get("vram_gb", hw.gpu_vram_gb)
+        try:
+            prof = analyze_model(model) if model else None
+        except Exception:
+            prof = None
+        params_b = (prof.param_count / 1e9) if prof and prof.param_count else None
+        avail = {k: v.available for k, v in available_backends().items()}
+        cands = rank_candidates(goal=goal, params_b=params_b, target_vram_gb=vram, available=avail)
+        return JSONResponse({
+            "model": model,
+            "params_b": params_b,
+            "target_vram_gb": vram,
+            "license": getattr(prof, "license", None),
+            "license_flag": getattr(prof, "license_is_restrictive_or_gated", False),
+            "candidates": [c.to_dict() for c in cands],
+        })
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return """<!DOCTYPE html>
@@ -109,146 +139,170 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quantiv — auto-quantize LLMs</title>
 <style>
-:root{--bg:#f4f1ea;--panel:#fdfcf9;--ink:#17130c;--dim:#6e675c;--line:#e4ded2;
---acc:#d9480f;--acc-soft:#fdeee3;--ok:#1e7e34;--ok-soft:#e2f3e5;--bad:#c92a22;--bad-soft:#fbe7e4;
---warn:#9a6700;--warn-soft:#fdf0d3;--term:#161210}
+:root{--bg:#0b0d11;--panel:#14171e;--panel2:#101319;--line:#262c37;--ink:#ece7d9;--dim:#8f8875;
+--acc:#f0a832;--acc-ink:#171106;--ok:#7ee2a0;--ok-soft:#7ee2a022;--bad:#ff8f86;--bad-soft:#ff8f8622;
+--warn:#f0a832;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
-font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-.wrap{max-width:1120px;margin:0 auto;padding:20px 28px 40px}
-.topbar{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
-.mark{width:34px;height:34px;border-radius:9px;background:var(--ink);color:#fff;
-display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px}
-.brand{font-weight:800;font-size:17px;letter-spacing:-.01em}
-.brand small{display:block;font-weight:600;font-size:10.5px;letter-spacing:.28em;color:var(--dim)}
+font:15px/1.6 var(--mono);
+background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);
+background-size:34px 34px}
+.wrap{max-width:1060px;margin:0 auto;padding:22px 26px 44px}
+.topbar{display:flex;align-items:center;gap:12px;padding:12px 0}
+.mark{width:32px;height:32px;border-radius:8px;background:var(--acc);color:var(--acc-ink);
+display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px}
+.brand{font-weight:800;font-size:16px;letter-spacing:.02em}
+.brand small{display:block;font-weight:400;font-size:10px;letter-spacing:.3em;color:var(--dim)}
 .pills{margin-left:auto;display:flex;gap:8px}
 .pill{border:1px solid var(--line);background:var(--panel);border-radius:20px;
-padding:5px 14px;font-size:12px;color:var(--dim);font-family:ui-monospace,Consolas,monospace}
+padding:5px 14px;font-size:12px;color:var(--dim)}
 .pill b{color:var(--ink)}.dotlive{color:var(--ok)}
-.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;margin:44px 0 30px}
-.eyebrow{font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.3em;color:var(--dim);margin-bottom:14px}
-.hero h1{font-size:56px;line-height:1.02;margin:0 0 18px;letter-spacing:-.025em;font-weight:800}
-.hero h1 em{font-style:normal;color:var(--acc)}
-.lede{font-size:17px;color:#3d382e;max-width:34em;margin:0 0 22px}
-.stats{display:flex;gap:28px;margin:0}
-.stats div b{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.stats div span{display:block;font-size:12px;color:var(--dim);font-family:ui-monospace,Consolas,monospace}
-.term{background:var(--term);color:#e8e2d4;border-radius:14px;overflow:hidden;
-box-shadow:0 24px 60px -20px #17130c55;font-family:ui-monospace,Consolas,monospace;font-size:13px}
-.termbar{display:flex;align-items:center;gap:7px;padding:11px 16px;border-bottom:1px solid #ffffff14;
-font-size:12px;color:#a89e8a}
-.termbar .lights{display:flex;gap:6px}.termbar .lights i{width:10px;height:10px;border-radius:50%;display:block}
-.termbar .st{margin-left:auto;color:#ff7a45}
-.termbody{padding:18px 20px;line-height:1.75}
-.termbody .h{color:#7d7462}.termbody .del{color:#ff9d8a}.termbody .add{color:#7ee2a0}
-.termbody .cmd{color:#e8e2d4}.termbody .ok{color:#7ee2a0}
-.cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:26px 0}
-.stepcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;position:relative}
-.stepcard.dark{background:var(--term);color:#e8e2d4;border-color:var(--term)}
-.stepcard.dark label{color:#a89e8a}.stepcard.dark input,.stepcard.dark select{background:#241f18;border-color:#ffffff22;color:#e8e2d4}
-.stepcard .num{position:absolute;top:16px;right:20px;font-size:26px;font-weight:800;color:#00000018}
-.stepcard.dark .num{color:#ffffff22}
-.stepcard .k{font-family:ui-monospace,Consolas,monospace;font-size:11px;letter-spacing:.24em;color:var(--dim);margin-bottom:8px}
-.stepcard h3{margin:0 0 14px;font-size:20px;letter-spacing:-.01em}
-label{display:block;font-size:12.5px;color:var(--dim);margin-bottom:5px;font-weight:600}
-.stepcard.dark .hint{color:#a89e8a}
-input,select{width:100%;background:#fff;border:1px solid var(--line);color:var(--ink);
-border-radius:9px;padding:9px 12px;font-size:14px;font-family:inherit}
-input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--acc)}
-button{background:var(--acc);border:0;color:#fff;border-radius:9px;padding:11px 20px;
+.ledger{border:1px solid var(--line);border-radius:12px;background:var(--panel2);
+padding:26px 28px;margin:26px 0 8px;position:relative;overflow:hidden}
+.ledger h1{font-size:clamp(30px,4.6vw,50px);line-height:1.04;margin:6px 0 12px;
+letter-spacing:-.02em;font-weight:800}
+.ledger h1 em{font-style:normal;color:var(--acc)}
+.eyebrow{font-size:11.5px;letter-spacing:.32em;color:var(--dim)}
+.lede{color:#c9c2b0;max-width:60em;margin:0 0 18px;font-size:15px}
+.receipt{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:center;
+border:1px dashed #ffffff2e;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px}
+.receipt .cell small{display:block;color:var(--dim);font-size:10.5px;letter-spacing:.14em}
+.receipt .cell b{font-size:19px;font-variant-numeric:tabular-nums}
+.receipt .arrow{color:var(--acc);font-size:20px}
+.receipt .stamp{border:2px solid var(--ok);color:var(--ok);border-radius:6px;padding:6px 14px;
+font-weight:800;letter-spacing:.14em;transform:rotate(-4deg);font-size:13px;white-space:nowrap}
+#bits{width:100%;height:120px;display:block;margin-top:6px}
+.bitcap{display:flex;justify-content:space-between;color:var(--dim);font-size:11.5px;letter-spacing:.12em}
+.bench{display:grid;grid-template-columns:220px 1fr;gap:0;margin-top:22px;border:1px solid var(--line);
+border-radius:14px;overflow:hidden;background:var(--panel)}
+.rail{background:var(--panel2);padding:22px 0;border-right:1px solid var(--line)}
+.rail div{padding:11px 22px;color:var(--dim);font-size:13px;cursor:pointer;border-left:3px solid transparent}
+.rail div.on{color:var(--ink);border-left-color:var(--acc);background:#ffffff06}
+.rail div b{color:var(--acc);margin-right:8px}
+.stage{padding:24px 26px;min-height:340px}
+.stage h3{margin:0 0 4px;font-size:21px;letter-spacing:-.01em}
+.stage .k{font-size:11px;letter-spacing:.26em;color:var(--dim);margin-bottom:6px}
+.stage p.d{color:var(--dim);font-size:13px;margin:0 0 16px;max-width:52em}
+label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:5px;font-weight:600;letter-spacing:.08em}
+input,select{width:100%;background:#0a0c10;border:1px solid var(--line);color:var(--ink);
+border-radius:8px;padding:9px 12px;font-size:14px;font-family:inherit}
+input:focus,select:focus{outline:1px solid var(--acc);border-color:var(--acc)}
+button{background:var(--acc);border:0;color:var(--acc-ink);border-radius:8px;padding:11px 20px;
 font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;width:100%}
-button:hover{filter:brightness(1.07)}button:disabled{opacity:.55;cursor:wait}
+button:hover{filter:brightness(1.1)}button:disabled{opacity:.55;cursor:wait}
 .goals{display:grid;gap:8px;margin:4px 0 12px}
-.goal{border:1px solid var(--line);border-radius:9px;padding:8px 12px;cursor:pointer;background:#fff}
+.goal{border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;background:#0a0c10}
 .goal b{display:block;font-size:13.5px}.goal small{color:var(--dim);font-size:11.5px}
-.goal.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;background:var(--acc-soft)}
-.stepcard.dark .goal{background:#241f18;border-color:#ffffff22;color:#e8e2d4}
-.stepcard.dark .goal small{color:#a89e8a}
-.stepcard.dark .goal.sel{background:#3a2415;border-color:var(--acc)}
-.drop{border:1.5px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--dim);font-size:13px}
-table{width:100%;border-collapse:collapse;font-size:13.5px}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
-th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.06em}
+.goal.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;background:#f0a83214}
+.planprev{margin-top:14px;font-size:12.5px}
+.planprev table{font-size:12.5px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.08em}
 tr:last-child td{border-bottom:0}
-.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:700}
-.b-run{background:var(--warn-soft);color:var(--warn)}.b-done{background:var(--ok-soft);color:var(--ok)}
-.b-fail{background:var(--bad-soft);color:var(--bad)}
+.badge{display:inline-block;padding:2px 10px;border-radius:5px;font-size:12px;font-weight:700}
+.b-run{background:#f0a83226;color:var(--warn)}.b-done{background:#7ee2a026;color:var(--ok)}
+.b-fail{background:#ff8f8626;color:var(--bad)}
 a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}
-#detail h3{margin:4px 0 10px}.mono{white-space:pre-wrap;background:#efe9db;border:1px solid var(--line);
-border-radius:8px;padding:10px;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;
-max-height:260px;overflow:auto;color:#3d382e}
-.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
-.kv div{background:#faf8f2;border:1px solid var(--line);border-radius:8px;padding:9px 13px}
-.kv small{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
-.kv b{font-size:18px;font-variant-numeric:tabular-nums}
+#detail h3{margin:4px 0 10px}.mono{white-space:pre-wrap;background:#0a0c10;border:1px solid var(--line);
+border-radius:8px;padding:10px;font-size:12px;max-height:240px;overflow:auto;color:#c9c2b0}
+.cert{border:1px dashed #ffffff30;border-radius:10px;padding:18px 20px;margin:14px 0;position:relative;background:#0a0c10}
+.cert .stamp{position:absolute;top:14px;right:16px}
+.cert h4{margin:0 0 10px;font-size:13px;letter-spacing:.2em;color:var(--dim)}
+.certgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.certgrid small{display:block;color:var(--dim);font-size:10.5px;letter-spacing:.1em}
+.certgrid b{font-size:17px;font-variant-numeric:tabular-nums}
 .pass{color:var(--ok);font-weight:700}.fail{color:var(--bad);font-weight:700}
 .hint{color:var(--dim);font-size:12.5px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
-.dot.on{background:var(--ok)}.dot.off{background:#cfc4ab}
+.dot.on{background:var(--ok)}.dot.off{background:#4a4438}
 summary{cursor:pointer}
 .grid{display:grid;gap:10px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px}
-.panel h2{font-size:12px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);font-weight:700}
+.panel h2{font-size:11.5px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.14em;color:var(--dim);font-weight:700}
 footer{text-align:center;color:var(--dim);font-size:12px;margin:26px 0 10px}
-@media(max-width:900px){.hero{grid-template-columns:1fr}.hero h1{font-size:40px}.cards{grid-template-columns:1fr}}
+@media(max-width:860px){.bench{grid-template-columns:1fr}.rail{display:flex;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}.receipt{grid-template-columns:1fr;text-align:center}.receipt .arrow{transform:rotate(90deg)}}
 </style></head><body><div class="wrap">
-<div class="topbar"><div class="mark">Q</div><div class="brand">Quantiv<small>QUANTIZATION ENGINE</small></div>
-<div class="pills"><span class="pill">auto-planner</span><span class="pill"><span class="dotlive">●</span>&nbsp;<b id="nb">…</b>&nbsp;backends live</span></div></div>
-<div class="hero"><div>
-<div class="eyebrow">ANALYZE → PLAN → QUANTIZE → VERIFY</div>
-<h1>Shrink the model.<br>Keep the <em>smarts</em>.</h1>
-<p class="lede">Quantiv takes an open-source LLM and a goal — “fit my 8&nbsp;GB GPU” — and returns a verified quantized artifact with measured perplexity, speed and memory numbers. No fabricated metrics, ever.</p>
-<div class="stats">
-<div><b>05</b><span>backends</span></div>
-<div><b>03</b><span>families measured</span></div>
-<div><b>44</b><span>tests green</span></div>
-<div><b>$0</b><span>runs offline</span></div>
-</div></div>
-<div class="term">
-<div class="termbar"><span class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span><span>quantiv — smolLM2-135M · hqq 8bit</span><span class="st">● verified</span></div>
-<div class="termbody">
-<div class="h">@@ smolLM2-135M · escalate 4bit → 8bit · attempt 2/2 @@</div>
-<div class="del">- ppl 21.466 · 272 MB · fp16 baseline</div>
-<div class="add">+ ppl 21.444 · 173 MB · 8-bit (−0.1%)</div>
-<div class="cmd">$ quantiv run --method hqq --max-attempts 3</div>
-<div class="ok">✓ gate PASS · report.json written</div>
-</div></div></div>
-<div class="cards">
-<div class="stepcard"><span class="num">01</span><div class="k">01 — MODEL</div><h3>Drop in a model</h3>
-<select id="modelpick"></select>
-<div id="customwrap" style="display:none;margin-top:8px"><input id="model" value="HuggingFaceTB/SmolLM2-135M" placeholder="org/model-name or /local/path"></div>
-<p class="hint" id="modelnote"></p></div>
-<div class="stepcard"><span class="num">02</span><div class="k">02 — GOAL</div><h3>Pick the target</h3>
-<div class="goals" id="goals"></div></div>
-<div class="stepcard dark"><span class="num">03</span><div class="k">03 — RUN</div><h3>Configure &amp; fire</h3>
-<div><label>ENGINE</label><select id="method"><option value="auto">Auto — offline rules</option><option>gptq</option><option>awq</option><option>hqq</option><option>gguf</option><option>bnb</option></select></div>
-<div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
-<div><label>SAMPLES</label><select id="samples"><option>8</option><option selected>16</option><option>32</option></select></div>
-<div><label>ATTEMPTS</label><select id="attempts"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+<div class="topbar"><div class="mark">Q</div><div class="brand">Quantiv<small>PRECISION LAB · v1.0</small></div>
+<div class="pills"><span class="pill">planner: auto</span><span class="pill"><span class="dotlive">●</span>&nbsp;<b id="nb">…</b>&nbsp;backends live</span></div></div>
+<div class="ledger">
+<div class="eyebrow">EVERY BIT, ACCOUNTED FOR</div>
+<h1>Smaller models.<br><em>Receipts included.</em></h1>
+<p class="lede">Quantiv packs an open-source LLM into fewer bits per weight — then proves, with measured perplexity, speed and memory numbers, that nothing important was lost. Each run ships a certificate. Nothing is ever fabricated.</p>
+<div class="receipt">
+<div class="cell"><small>IN · fp16</small><b>272 MB</b></div><div class="arrow">→</div>
+<div class="cell"><small>OUT · 8-bit</small><b>173 MB</b></div><div class="arrow">→</div>
+<div class="cell"><small>smolLM2-135M · measured</small><b>Δppl −0.1%</b></div>
+<div class="stamp">GATE&nbsp;PASS</div>
 </div>
-<div style="margin-top:12px"><button id="go">▶ Quantize</button></div>
+<canvas id="bits"></canvas>
+<div class="bitcap"><span>FP16 · 16 BITS/WEIGHT</span><span>PACKING…</span><span>INT4 · 4 BITS/WEIGHT</span></div>
 </div>
+<div class="bench">
+<div class="rail" id="rail">
+<div data-s="0" class="on"><b>01</b>INTAKE</div>
+<div data-s="1"><b>02</b>CALIBRATE</div>
+<div data-s="2"><b>03</b>VERIFY &amp; FIRE</div>
+<div data-s="3"><b>04</b>LEDGER</div>
 </div>
-<div class="panel"><h2>Runs</h2><table id="jobs">
-<tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr>
-</table></div>
-<div class="panel" id="detail" style="display:none"><h2>Run detail</h2><div id="d"></div></div>
-<footer>Quantiv · <a href="https://github.com/ArshDhole/Quantiv">GitHub</a> · every number measured · <span class="mono" style="display:inline;padding:1px 6px">runs/</span></footer>
+<div class="stage" id="stage"></div>
+</div>
+<div class="panel" id="detail" style="display:none"><h2>Certificate of quantization</h2><div id="d"></div></div>
+<footer>Quantiv · <a href="https://github.com/ArshDhole/Quantiv">GitHub</a> · every number measured</footer>
 </div>
 <script>
 const $=id=>document.getElementById(id);
 const badge=s=>s==='done'?'<span class="badge b-done">done</span>':s==='failed'?'<span class="badge b-fail">failed</span>':'<span class="badge b-run">running</span>';
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-let watch=null,cur=null;
+let watch=null,cur=null,STAGE=0;
+const STAGE_META=[
+ ["01 · INTAKE","What are we weighing?","Pick a model to put on the bench."],
+ ["02 · CALIBRATE","What does good look like?","Set the goal — the planner prices every strategy before you spend a GPU-minute."],
+ ["03 · VERIFY & FIRE","Run it, then check the receipt.","Quantize, measure both versions, gate the result. Escalates automatically on a miss."],
+ ["04 · LEDGER","Every run, on record.","Finished and running jobs with their verdicts. Nothing is ever fabricated."],
+];
+function stageHTML(i){
+ if(i===0)return `<div class="k">01 — INTAKE</div><h3>What are we weighing?</h3>
+  <p class="d">Pick a model to put on the bench. Anything public works — or point at a local directory.</p>
+  <label>MODEL</label><select id="modelpick"></select>
+  <div id="customwrap" style="display:none;margin-top:8px"><input id="model" value="HuggingFaceTB/SmolLM2-135M" placeholder="org/model-name or /local/path"></div>
+  <p class="hint" id="modelnote"></p>`;
+ if(i===1)return `<div class="k">02 — CALIBRATE</div><h3>What does good look like?</h3>
+  <p class="d">Set the goal. The bench prices every strategy <i>before</i> spending a GPU-minute.</p>
+  <div class="goals" id="goals"></div><div id="planprev" class="planprev hint">pick a model to price strategies…</div>`;
+ if(i===2)return `<div class="k">03 — VERIFY &amp; FIRE</div><h3>Run it, check the receipt.</h3>
+  <p class="d">Quantize → measure both versions → gate. A miss escalates automatically (bounded).</p>
+  <div><label>ENGINE</label><select id="method"><option value="auto">Auto — planner picks</option><option>gptq</option><option>awq</option><option>hqq</option><option>gguf</option><option>bnb</option></select></div>
+  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
+  <div><label>EVAL SAMPLES</label><select id="samples"><option>8</option><option selected>16</option><option>32</option></select></div>
+  <div><label>MAX ATTEMPTS</label><select id="attempts"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div></div>
+  <div style="margin-top:12px"><button id="go">▶ Quantize</button></div>`;
+ return `<div class="k">04 — LEDGER</div><h3>Every run, on record.</h3>
+  <p class="d">Finished and running jobs with verdicts. Click a row for its certificate.</p>
+  <table id="jobs"><tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr></table>
+  <div id="d" style="margin-top:14px"></div>`;
+}
+function setStage(i){
+ STAGE=i;
+ document.querySelectorAll('#rail div').forEach((el,k)=>el.classList.toggle('on',k===i));
+ $('stage').innerHTML=stageHTML(i);
+ if(i===0)initIntake();
+ if(i===1)initCalibrate();
+ if(i===2)initFire();
+ if(i===3){refreshJobs();}
+}
+document.querySelectorAll('#rail div').forEach(el=>el.onclick=()=>setStage(parseInt(el.dataset.s)));
 async function refreshJobs(){
- const jobs=await (await fetch('/jobs')).json();
  const t=$('jobs');
+ if(!t)return;
+ const jobs=await (await fetch('/jobs')).json();
  const short=m=>{const p=m.split('/');return esc(p.length>1?p[1]:m);};
  t.innerHTML='<tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr>'+
   jobs.map(j=>`<tr><td class="hint">${j.id}</td><td>${short(j.model)}</td><td>${esc(j.goal)}</td><td>${badge(j.status)}</td><td class="hint">${esc(j.result||'')}</td><td><a onclick="show('${j.id}')">open →</a></td></tr>`).join('')
-  ||'<tr><td colspan=6 class="hint">no runs yet — start one above</td></tr>';
+  ||'<tr><td colspan=6 class="hint">ledger empty — fire a run from 03</td></tr>';
 }
 async function show(id){
- cur=id;$('detail').style.display='block';
+ cur=id;
+ if(STAGE!==3)setStage(3);
  clearInterval(watch);await detail(id);
  watch=setInterval(()=>detail(id),2000);
 }
@@ -259,32 +313,91 @@ async function detail(id){
  if(s.status==='done'){
   const rep=await (await fetch('/jobs/'+id+'/report')).json();
   const q=rep.quantized||{},c=rep.comparison||{},base=rep.baseline||{};
-  const gate=c.gate_pass===true?'<span class="pass">PASS</span>':c.gate_pass===false?'<span class="fail">FAIL</span>':'n/a';
+  const pass=c.gate_pass===true;
+  const stamp=pass?'<span class="stamp" style="border-color:var(--ok);color:var(--ok)">GATE&nbsp;PASS</span>':'<span class="stamp" style="border-color:var(--bad);color:var(--bad)">GATE&nbsp;FAIL</span>';
   let shrink='—';
   if(base.disk_size_gb&&q.disk_size_gb&&q.disk_size_gb>0)shrink=(base.disk_size_gb/q.disk_size_gb).toFixed(1)+'× smaller';
-  h+=`<div class="kv">
-   <div><small>Perplexity Δ</small><b>${c.ppl_increase??'—'}</b></div>
-   <div><small>Gate</small><b>${gate}</b></div>
-   <div><small>Tokens/sec</small><b>${q.tokens_per_sec??'—'}</b></div>
-   <div><small>Size</small><b>${shrink}</b></div>
-   <div><small>Method</small><b>${esc((rep.quant||{}).method??'')} ${(rep.quant||{}).quant??''}</b></div>
-  </div>
-  <p><a href="/jobs/${id}/report" target="_blank">full report.json →</a></p>`;
+  h+=`<div class="cert">${stamp}<h4>CERTIFICATE OF QUANTIZATION · QUANTIV v1.0</h4>
+   <div class="certgrid">
+   <div><small>METHOD</small><b>${esc((rep.quant||{}).method??'')} ${(rep.quant||{}).quant??''}</b></div>
+   <div><small>PPL CHANGE</small><b>${c.ppl_increase??'—'}</b></div>
+   <div><small>SIZE</small><b>${shrink}</b></div>
+   <div><small>SPEED</small><b>${q.tokens_per_sec??'—'} tok/s</b></div>
+   <div><small>TEXTS</small><b>${esc(q.text_source??'').split('(')[0]}</b></div>
+   <div><small>DEVICE</small><b>${esc(q.device??rep.quant?.device??'')}</b></div>
+   </div>
+   <p class="hint">measured, not claimed · <a href="/jobs/${id}/report" target="_blank">full report.json →</a></p></div>`;
   const at=(rep.attempts||[]).map(a=>`<tr><td>${a.n}</td><td>${esc(a.method)}</td><td>${esc(a.quant)}</td><td>${a.ppl}</td><td>${a.gate_pass?'PASS':'FAIL'}</td></tr>`).join('');
   if(at)h+='<table><tr><th>#</th><th>Method</th><th>Quant</th><th>PPL</th><th>Gate</th></tr>'+at+'</table>';
  }
  if(s.log)h+=`<h3>Log</h3><div class="mono">${esc(s.log)}</div>`;
- $('d').innerHTML=h;
+ const d=$('d');if(d)d.innerHTML=h;
  if(s.status==='done'||s.status==='failed'){clearInterval(watch);refreshJobs();}
 }
-$('go').onclick=async()=>{
- $('go').disabled=true;
- const r=await fetch('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({model:$('model').value,goal:GOAL,method:$('method').value,
-   max_samples:parseInt($('samples').value||'16'),max_attempts:parseInt($('attempts').value||'3')})});
- const j=await r.json();$('go').disabled=false;
- refreshJobs();show(j.id);
-};
+function fireSubmit(){
+ const go=$('go');if(!go)return;
+ go.onclick=async()=>{
+  go.disabled=true;
+  const r=await fetch('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({model:(typeof MODEL!=='undefined'&&MODEL)||'HuggingFaceTB/SmolLM2-135M',goal:GOAL,method:$('method').value,
+    max_samples:parseInt($('samples').value||'16'),max_attempts:parseInt($('attempts').value||'3')})});
+  const j=await r.json();go.disabled=false;
+  show(j.id);
+ };
+}
+function initIntake(){
+ $('modelpick').innerHTML=GROUPS.map(g=>
+  `<optgroup label="${g[0]}">`+MODELS.slice(g[1],g[2]).map(m=>`<option value="${m[0]}">${m[1]}</option>`).join('')+`</optgroup>`).join('')
+  +`<option value="__custom">⌨ Custom HF id or local path…</option>`;
+ if(typeof MODEL!=='undefined'&&MODEL&&MODELS.some(m=>m[0]===MODEL))$('modelpick').value=MODEL;
+ $('modelpick').onchange=syncModel;syncModel();
+}
+function initCalibrate(){
+ $('goals').innerHTML=GOALS.map(g=>`<div class="goal${g[0]===GOAL?' sel':''}" data-g="${g[0]}"><b>${g[1]}</b><small>${g[2]}</small></div>`).join('');
+ document.querySelectorAll('.goal').forEach(el=>el.onclick=()=>{GOAL=el.dataset.g;
+  document.querySelectorAll('.goal').forEach(x=>x.classList.toggle('sel',x===el));price();});
+ price();
+}
+let priceT=null;
+async function price(){
+ const box=$('planprev');if(!box)return;
+ const mv=(typeof MODEL!=='undefined'&&MODEL)||'';
+ if(!mv){box.textContent='pick a model to price strategies…';return;}
+ box.textContent='pricing…';
+ clearTimeout(priceT);
+ priceT=setTimeout(async()=>{
+  try{
+   const p=await (await fetch('/api/plan?model='+encodeURIComponent(mv)+'&goal='+GOAL)).json();
+   const rows=(p.candidates||[]).slice(0,4).map(c=>
+    `<tr><td>${esc(c.method)}</td><td>${esc(c.quant)}</td><td>${c.score}</td><td>${c.fits_target?'✓':'⚠'}</td></tr>`).join('');
+   box.innerHTML=`priced for ${esc(mv)}${p.params_b?` · ${p.params_b.toFixed(2)}B params`:''}${p.license?` · ${esc(p.license)}`:''}<table><tr><th>Engine</th><th>Quant</th><th>Score</th><th>Fit</th></tr>${rows}</table>`;
+  }catch(e){box.textContent='pricing unavailable offline';}
+ },400);
+}
+function initFire(){fireSubmit();}
+function paintBits(){
+ const cv=$('bits');if(!cv)return;
+ const ctx=cv.getContext('2d');
+ const W=cv.width=cv.offsetWidth*2,H=cv.height=240;
+ let t=0;
+ function frame(){
+  t+=0.016;ctx.clearRect(0,0,W,H);
+  const n=16,bw=W/(n+2);
+  for(let i=0;i<n;i++){
+   const ph=(t*0.7+i*0.35)%4;
+   const k=ph<2?1:(3-ph); // 1 → hold → merge
+   const gx=(i%4)*2+Math.floor(i/4)%2, target=Math.floor(i/4);
+   const x=(gx+(target-gx)*Math.max(0,k-1))*(bw)+bw;
+   const s=bw*0.62*(1-0.35*Math.max(0,k-1));
+   const a=0.25+0.75*Math.min(1,2-k+1);
+   ctx.fillStyle=i%2?`rgba(240,168,50,${a})`:`rgba(236,231,217,${a*0.8})`;
+   const y=H/2-s/2+Math.sin(t*2+i)*4;
+   ctx.fillRect(x,y,s,s*0.7);
+  }
+  requestAnimationFrame(frame);
+ }
+ frame();
+}
 async function loadBackends(){
  try{
   const b=await (await fetch('/api/backends')).json();
@@ -325,16 +438,14 @@ function syncModel(){
  const v=$('modelpick').value;
  $('customwrap').style.display=v==='__custom'?'block':'none';
  if(v!=='__custom')$('model').value=v;
- const m=MODELS.find(x=>x[0]===$('model').value);
+ MODEL=$('model').value;
+ const m=MODELS.find(x=>x[0]===MODEL);
  $('modelnote').textContent=m?`family ${m[2]} · ${m[1]}`:'Any public HF repo id or a local model directory.';
+ price();
 }
-$('modelpick').onchange=syncModel;syncModel();
-$('goals').innerHTML=GOALS.map(g=>`<div class="goal${g[0]===GOAL?' sel':''}" data-g="${g[0]}"><b>${g[1]}</b><small>${g[2]}</small></div>`).join('');
-document.querySelectorAll('.goal').forEach(el=>el.onclick=()=>{
- GOAL=el.dataset.g;
- document.querySelectorAll('.goal').forEach(x=>x.classList.toggle('sel',x===el));
-});
-refreshJobs();setInterval(()=>{if(!cur)refreshJobs();},5000);
+let MODEL='HuggingFaceTB/SmolLM2-135M';
+setStage(0);paintBits();
+setInterval(()=>{if(STAGE===3&&!cur)refreshJobs();},5000);
 </script></body></html>"""
 
     @app.post("/jobs")
