@@ -198,24 +198,25 @@ export function Composer(p: ComposerProps) {
 function PlanStrip({ plan }: { plan: PlanPreview | null }) {
   if (!plan) return <div className="planline">price check loading…</div>;
   const top = plan.candidates[0];
+  const why =
+    (top?.reasons || []).find((r) => r.startsWith('est.')) || (top?.reasons || [])[0] || '';
   return (
     <div className="planline">
       top pick: <b>{top ? `${top.method} ${top.quant}` : '?'}</b>
       {plan.params_b ? ` · ${plan.params_b.toFixed(2)}B params` : ''}
       {plan.license ? ` · ${plan.license}` : ''}
+      {why ? ` · ${why}` : ''}
       <table>
         <tbody>
           <tr>
             <th>Engine</th>
             <th>Quant</th>
-            <th>Score</th>
             <th>Fit</th>
           </tr>
           {plan.candidates.slice(0, 3).map((c: Candidate) => (
             <tr key={c.method + c.quant}>
               <td>{c.method}</td>
               <td>{c.quant}</td>
-              <td>{c.score}</td>
               <td>{c.fits_target ? 'fits' : 'tight'}</td>
             </tr>
           ))}
