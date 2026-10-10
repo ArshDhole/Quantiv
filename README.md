@@ -1,18 +1,20 @@
 # Quantiv — auto-quantize open-source LLMs
 
-> **Status: Phase 2 (first backends + baseline eval) done.** See `docs/` for the roadmap and support matrix.
+> **Status: v1.0 — all phases complete.** See `docs/supported-models.md` for measured results and `CHANGELOG.md` for history.
 
 Quantiv takes a model (HF repo ID or local path) + a goal ("run on 8GB GPU", "smallest size <2% loss") and produces a **verified, quantized, ready-to-run artifact** with real measured quality/speed/memory numbers. An LLM-driven planner orchestrates deterministic quantization tooling — the agent decides, the tools do the math, and **no metric is ever fabricated**.
 
-## What works today (v0.2)
+## What works (v1.0)
 
-- `quantiv doctor` — environment / driver / dependency checks
-- `quantiv analyze <model>` — arch, params, dtype, license, tokenizer, memory estimates (local dir or HF Hub, no full weight download)
-- `quantiv run <model> --method hqq|gguf|bnb|auto` — end-to-end: quantize, evaluate baseline + quantized (perplexity on WikiText-2, tokens/sec, peak memory, disk size, sanity), write `report.md`/`report.json` + manifest with quality-gate verdict
-- `quantiv eval <quantized> --baseline <model>` — standalone comparison report (HF or GGUF artifacts)
-- `quantiv plan` — ranked candidates via rules engine; `compare`/`package` still stubs (Phases 4/6)
-- Backends: **HQQ** (4-bit, CPU+CUDA), **GGUF** (Q2_K..Q8_0 via pinned llama.cpp v0.6.0 toolkit + built bindings), **bitsandbytes** (8-bit/NF4, CUDA-only — correctly reports unavailable on CPU boxes)
-- `--no-agent` rules-engine path is the default (agent layer lands in Phase 5)
+- `quantiv analyze` — arch, params, dtype, license, tokenizer, memory estimates (Hub or local)
+- `quantiv plan` — scored, ranked candidates with VRAM-fit check
+- `quantiv run` — end-to-end with **bounded retry ladder** (higher bits → next method → mixed precision) and gate verdict
+- `quantiv run --agent` — autonomous tool-calling loop (offline echo provider default; OpenAI-compatible optional)
+- `quantiv eval` / `compare` — measured side-by-side reports (HF + GGUF artifacts)
+- `quantiv package` — MODEL_CARD.md + manifest, license-gated opt-in Hub upload
+- `quantiv dashboard` — web UI: submit jobs, watch progress, fetch reports
+- Backends: **HQQ** (incl. per-block mixed precision), **GGUF** (Q2_K..Q8_0), **GPTQ** (calibrated, checkpointed), **AWQ** (experimental), **bitsandbytes** (8-bit/NF4, CUDA)
+- `--no-agent` rules path always works with no API key
 
 ## Quickstart
 
