@@ -1,6 +1,6 @@
 [project]
 name = "quantiv"
-version = "0.1.0a1"
+version = "1.0.0"
 description = "Agentic system that auto-quantizes open-source LLMs and delivers verified, ready-to-run artifacts."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
