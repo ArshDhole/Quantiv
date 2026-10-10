@@ -133,7 +133,8 @@ a:hover { text-decoration: underline; }
 .cert h4 { margin: 0 0 10px; font: 600 12px var(--mono); letter-spacing: 0.22em; color: var(--dim); }
 .certgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .certgrid small { display: block; color: var(--dim); font-size: 10.5px; letter-spacing: 0.1em; }
-.certgrid b { font-size: 17px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.certgrid b { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+.certgrid > div { min-width: 0; }
 .pass { color: var(--ok); font-weight: 700; }
 .fail { color: var(--bad); font-weight: 700; }
 .hint { color: var(--dim); font-size: 12.5px; }

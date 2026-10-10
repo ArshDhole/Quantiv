@@ -377,7 +377,7 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
         <div><small>METHOD</small><b>{report.quant.method} {report.quant.quant}</b></div>
         <div><small>SIZE</small><b>{shrink}</b></div>
         <div><small>SPEED</small><b>{q.tokens_per_sec ?? '—'} tok/s</b></div>
-        <div><small>TEXTS</small><b>{(q.text_source || '').split('(')[0]}</b></div>
+        <div><small>TEXTS</small><b title={q.text_source || ''}>{((q.text_source || '').split('(')[0].split('/').slice(-2).join('/') || '—').trim() || '—'}</b></div>
         <div><small>DEVICE</small><b>{q.device || report.quant.device || ''}</b></div>
       </div>
       <p className="hint">
