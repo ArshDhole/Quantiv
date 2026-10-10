@@ -109,59 +109,61 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quantiv — auto-quantize LLMs</title>
 <style>
-:root{--bg:#101208;--panel:#181b10;--border:#333a22;--txt:#eef3d8;--dim:#9aa37c;
---acc:#c8f04a;--acc-ink:#131503;--ok:#7ee787;--bad:#ffa198;--warn:#e3b341}
+:root{--bg:#f7f6f3;--panel:#ffffff;--border:#e5e2d9;--txt:#1c1b18;--dim:#6f6a5e;
+--acc:#1f6feb;--acc-soft:#e8f0fe;--ok:#1a7f37;--ok-soft:#dcf2e3;--bad:#c93c37;--bad-soft:#fbe9e7;--warn:#9a6700;--warn-soft:#fef3d8}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);
-font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
-background-image:linear-gradient(#ffffff06 1px,transparent 1px),linear-gradient(90deg,#ffffff06 1px,transparent 1px);
-background-size:28px 28px}
-.wrap{max-width:1080px;margin:0 auto;padding:24px}
-header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
-.logo{width:34px;height:34px;border-radius:8px;background:var(--acc);color:var(--acc-ink);
-display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px}
-header h1{font-size:22px;margin:0;letter-spacing:.02em}
-header h1 span{color:var(--acc)}
-.sub{color:var(--dim);margin:0 0 20px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:18px}
-.card h2{font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.12em;color:var(--acc)}
-label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
-input,select{width:100%;background:#0d0f06;border:1px solid var(--border);color:var(--txt);
-border-radius:6px;padding:8px 10px;font-size:14px;font-family:inherit}
-input:focus,select:focus{outline:1px solid var(--acc)}
-button{background:var(--acc);border:0;color:var(--acc-ink);border-radius:6px;padding:9px 18px;
-font-size:14px;font-weight:800;cursor:pointer;font-family:inherit}
-button:hover{filter:brightness(1.1)}button:disabled{opacity:.5;cursor:wait}
+font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:32px 24px}
+header{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+.logo{width:38px;height:38px;border-radius:10px;background:var(--txt);color:#fff;
+display:flex;align-items:center;justify-content:center;font-weight:800;font-size:21px}
+header h1{font-size:21px;margin:0;letter-spacing:-.01em}
+header h1 span{color:var(--dim);font-weight:400;font-size:14px}
+.tag{font-size:12px;color:var(--dim)}
+#backends{margin-left:auto;text-align:right;font-size:12px;color:var(--dim)}
+.sub{color:var(--dim);margin:0 0 24px;font-size:14px}
+.steps{display:flex;align-items:center;gap:10px;margin:0 0 20px;color:var(--dim);font-size:13px}
+.steps b{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--txt);
+color:#fff;align-items:center;justify-content:center;font-size:12px;margin-right:6px;font-weight:700}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+padding:20px 22px;margin-bottom:16px;box-shadow:0 1px 2px #1c1b1808}
+.card h2{font-size:12px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);font-weight:700}
+label{display:block;font-size:12.5px;color:var(--dim);margin-bottom:5px;font-weight:600}
+input,select{width:100%;background:#fff;border:1px solid var(--border);color:var(--txt);
+border-radius:8px;padding:9px 12px;font-size:14px;font-family:inherit}
+input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--acc)}
+button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:10px 22px;
+font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+button:hover{filter:brightness(1.08)}button:disabled{opacity:.55;cursor:wait}
 .goals{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:4px 0 12px}
-.goal{border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;background:#0d0f06}
-.goal b{display:block;font-size:13px}.goal small{color:var(--dim);font-size:11px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
-.goal.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
-th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.05em}
-.badge{display:inline-block;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:700}
-.b-run{background:#e3b34133;color:var(--warn)}.b-done{background:#3fb95033;color:var(--ok)}
-.b-fail{background:#f8514933;color:var(--bad)}
-a{color:var(--acc);cursor:pointer}a:hover{text-decoration:underline}
-#detail h3{margin:4px 0 10px}.mono{white-space:pre-wrap;background:#0d0f06;border:1px solid var(--border);
-border-radius:6px;padding:10px;font-size:12px;max-height:260px;overflow:auto}
+.goal{border:1px solid var(--border);border-radius:8px;padding:9px 11px;cursor:pointer;background:#fff}
+.goal b{display:block;font-size:13px}.goal small{color:var(--dim);font-size:11.5px}
+.goal.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;background:var(--acc-soft)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border)}
+th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.06em}
+tr:last-child td{border-bottom:0}
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.b-run{background:var(--warn-soft);color:var(--warn)}.b-done{background:var(--ok-soft);color:var(--ok)}
+.b-fail{background:var(--bad-soft);color:var(--bad)}
+a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}
+#detail h3{margin:4px 0 10px}.mono{white-space:pre-wrap;background:#f1efe9;border:1px solid var(--border);
+border-radius:8px;padding:10px;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;
+max-height:260px;overflow:auto;color:#3d3a33}
 .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
-.kv div{background:#0d0f06;border:1px solid var(--border);border-radius:6px;padding:8px 12px}
-.kv small{display:block;color:var(--dim);font-size:11px;text-transform:uppercase}
-.kv b{font-size:17px}
+.kv div{background:#faf9f6;border:1px solid var(--border);border-radius:8px;padding:9px 13px}
+.kv small{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.kv b{font-size:18px;font-variant-numeric:tabular-nums}
 .pass{color:var(--ok);font-weight:700}.fail{color:var(--bad);font-weight:700}
-.hint{color:var(--dim);font-size:12px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
-.lock{color:var(--warn)}
-.steps{display:flex;align-items:center;gap:10px;margin:14px 0 20px;color:var(--dim);
-font-size:13px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
-.steps b{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--acc);
-color:var(--acc-ink);align-items:center;justify-content:center;font-size:12px;margin-right:6px}
+.hint{color:var(--dim);font-size:12.5px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
-.dot.on{background:var(--acc)}.dot.off{background:#4a5240}
+.dot.on{background:var(--ok)}.dot.off{background:#cfc9ba}
 summary{cursor:pointer}
+.grid{display:grid;gap:10px}
 </style></head><body><div class="wrap">
-<header><div class="logo">Q</div><div><h1>QUANTIV <span>v1.0</span></h1>
-<div class="hint">agentic LLM quantization · measured, never fabricated</div></div>
-<div id="backends" class="hint" style="margin-left:auto;text-align:right">backends…</div></header>
+<header><div class="logo">Q</div><div><h1>Quantiv <span>· v1.0</span></h1>
+<div class="tag">agentic LLM quantization — measured, never fabricated</div></div>
+<div id="backends" style="margin-left:auto;text-align:right">backends…</div></header>
 <div class="steps"><div><b>1</b> Pick a model</div><div>→</div><div><b>2</b> Set the goal</div><div>→</div><div><b>3</b> Get verified artifact + report</div></div>
 <div class="card"><h2>Step 1 · Model</h2>
 <select id="modelpick"></select>
