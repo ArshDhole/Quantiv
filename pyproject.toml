@@ -45,13 +45,14 @@ gptq = ["gptqmodel>=7.5,<8.0"]
 awq = ["llmcompressor>=0.14,<1.0"]
 calib = ["datasets>=4.0,<5.0"]
 eval = ["lm-eval>=0.4.8,<0.5"]
+web = ["fastapi>=0.115", "uvicorn>=0.30"]
 dev = [
   "pytest>=8,<9",
   "ruff>=0.5,<0.14",
   "mypy>=1.10,<2.0",
 ]
 all = [
-  "quantiv[core-ml,gguf,bnb,hqq,torchao,gptq,eval,dev]",
+  "quantiv[core-ml,gguf,bnb,hqq,torchao,gptq,awq,calib,eval,web,dev]",
 ]
 
 [project.scripts]
