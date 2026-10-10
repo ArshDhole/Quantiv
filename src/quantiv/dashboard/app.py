@@ -29,6 +29,28 @@ def _db(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _result_summary(run_dir: str) -> str:
+    """One-line verdict for the jobs table, read from report.json when present."""
+    if not run_dir:
+        return ""
+    rep = Path(run_dir) / "report.json"
+    if not rep.exists():
+        return ""
+    try:
+        data = json.loads(rep.read_text(encoding="utf-8"))
+        comp = data.get("comparison", {})
+        gate = comp.get("gate_pass")
+        inc = comp.get("ppl_increase")
+        pct = f" {inc:+.1%}" if isinstance(inc, (int, float)) else ""
+        if gate is True:
+            return f"PASS{pct}"
+        if gate is False:
+            return f"FAIL{pct}"
+        return "done"
+    except Exception:
+        return ""
+
+
 def create_app(state_dir: str | Path = "runs/dashboard"):
     from fastapi import FastAPI
     from fastapi.responses import HTMLResponse, JSONResponse
@@ -46,7 +68,7 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
         conn.commit()
         conn.close()
 
-    def run_job(job_id: str, model: str, goal: str, method: str) -> None:
+    def run_job(job_id: str, model: str, goal: str, method: str, max_samples: int, max_attempts: int) -> None:
         from quantiv.planner.pipeline import run_pipeline
         from quantiv.quantizers.base import resolve_device
 
@@ -62,14 +84,23 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
                 goal=goal,
                 method=method,
                 device=resolve_device(),
-                max_attempts=3,
-                max_samples=16,
+                max_attempts=max_attempts,
+                max_samples=max_samples,
                 run_dir=state / job_id,
                 on_step=on_step,
             )
             set_job(job_id, status="done", run_dir=out["run_dir"])
         except Exception as e:  # noqa: BLE001
             set_job(job_id, status="failed", error=f"{type(e).__name__}: {e}")
+
+    @app.get("/api/backends")
+    def backends() -> JSONResponse:
+        from quantiv.quantizers import available_backends
+
+        return JSONResponse(
+            {k: {"available": v.available, "reason": v.reason, "version": v.version}
+             for k, v in available_backends().items()}
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -120,22 +151,38 @@ border-radius:6px;padding:10px;font-size:12px;max-height:260px;overflow:auto}
 .pass{color:var(--ok);font-weight:700}.fail{color:var(--bad);font-weight:700}
 .hint{color:var(--dim);font-size:12px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
 .lock{color:var(--warn)}
+.steps{display:flex;align-items:center;gap:10px;margin:14px 0 20px;color:var(--dim);
+font-size:13px;font-family:-apple-system,"Segoe UI",Roboto,sans-serif}
+.steps b{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--acc);
+color:var(--acc-ink);align-items:center;justify-content:center;font-size:12px;margin-right:6px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.dot.on{background:var(--acc)}.dot.off{background:#4a5240}
+summary{cursor:pointer}
 </style></head><body><div class="wrap">
-<header><div class="logo">Q</div><h1>QUANTIV <span>v1.0</span></h1></header>
-<p class="sub">Model in → verified quantized artifact out. Every number measured — perplexity, speed, memory, gate verdict. No fabricated metrics, ever.</p>
-<div class="card"><h2>◈ New quantization job</h2>
-<div><label>Model — pick a verified one or type any HF id / local path</label>
+<header><div class="logo">Q</div><div><h1>QUANTIV <span>v1.0</span></h1>
+<div class="hint">agentic LLM quantization · measured, never fabricated</div></div>
+<div id="backends" class="hint" style="margin-left:auto;text-align:right">backends…</div></header>
+<div class="steps"><div><b>1</b> Pick a model</div><div>→</div><div><b>2</b> Set the goal</div><div>→</div><div><b>3</b> Get verified artifact + report</div></div>
+<div class="card"><h2>Step 1 · Model</h2>
 <select id="modelpick"></select>
-<input id="model" value="HuggingFaceTB/SmolLM2-135M" style="margin-top:8px"></div>
-<div style="margin-top:12px"><label>Goal</label><div class="goals" id="goals"></div></div>
-<div class="grid" style="grid-template-columns:1fr auto;margin-top:4px">
-<div><label>Method <span class="hint">(auto = planner picks)</span></label><select id="method"><option>auto</option><option>gptq</option><option>awq</option><option>hqq</option><option>gguf</option><option>bnb</option></select></div>
+<div id="customwrap" style="display:none;margin-top:8px"><input id="model" value="HuggingFaceTB/SmolLM2-135M" placeholder="org/model-name or /local/path"></div>
+<p class="hint" id="modelnote"></p></div>
+<div class="card"><h2>Step 2 · Goal &amp; method</h2>
+<div class="goals" id="goals"></div>
+<div class="grid" style="grid-template-columns:1fr 1fr auto;margin-top:4px">
+<div><label>Method</label><select id="method"><option value="auto">auto — planner picks ✓</option><option>gptq</option><option>awq</option><option>hqq</option><option>gguf</option><option>bnb</option></select></div>
+<div><label>Eval samples</label><select id="samples"><option>8</option><option selected>16</option><option>32</option></select></div>
 <div><label>&nbsp;</label><button id="go">▶ Quantize</button></div>
-</div><p class="hint">Pipeline: analyze → quantize → evaluate → quality gate → escalate if needed. Reports land in <span class="mono" style="display:inline;padding:1px 6px">runs/</span>.</p></div>
-<div class="card"><h2>Jobs</h2><table id="jobs">
-<tr><th>Job</th><th>Model</th><th>Goal</th><th>Method</th><th>Status</th><th>Updated</th></tr>
+</div>
+<details style="margin-top:10px"><summary class="hint">Advanced</summary>
+<div style="margin-top:8px"><label>Max escalation attempts (1–5)</label>
+<select id="attempts" style="max-width:120px"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+</details></div>
+<div class="card"><h2>Step 3 · Runs</h2><table id="jobs">
+<tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr>
 </table></div>
-<div class="card" id="detail" style="display:none"><h2>Job detail</h2><div id="d"></div></div>
+<div class="card" id="detail" style="display:none"><h2>Run detail</h2><div id="d"></div></div>
+<div class="hint" style="text-align:center;margin:24px 0">Quantiv · <a href="https://github.com/ArshDhole/Quantiv">GitHub</a> · reports in <span class="mono" style="display:inline;padding:1px 6px">runs/</span></div>
 </div>
 <script>
 const $=id=>document.getElementById(id);
@@ -145,9 +192,10 @@ let watch=null,cur=null;
 async function refreshJobs(){
  const jobs=await (await fetch('/jobs')).json();
  const t=$('jobs');
- t.innerHTML='<tr><th>Job</th><th>Model</th><th>Goal</th><th>Method</th><th>Status</th><th>Updated</th></tr>'+
-  jobs.map(j=>`<tr><td><a onclick="show('${j.id}')">${j.id}</a></td><td>${esc(j.model)}</td><td>${esc(j.goal)}</td><td>${esc(j.method)}</td><td>${badge(j.status)}</td><td>${new Date(j.updated*1000).toLocaleTimeString()}</td></tr>`).join('')
-  ||'<tr><td colspan=6 class="hint">no jobs yet — submit one above</td></tr>';
+ const short=m=>{const p=m.split('/');return esc(p.length>1?p[1]:m);};
+ t.innerHTML='<tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr>'+
+  jobs.map(j=>`<tr><td class="hint">${j.id}</td><td>${short(j.model)}</td><td>${esc(j.goal)}</td><td>${badge(j.status)}</td><td class="hint">${esc(j.result||'')}</td><td><a onclick="show('${j.id}')">open →</a></td></tr>`).join('')
+  ||'<tr><td colspan=6 class="hint">no runs yet — start one above</td></tr>';
 }
 async function show(id){
  cur=id;$('detail').style.display='block';
@@ -160,15 +208,18 @@ async function detail(id){
  if(s.status==='failed')h+=`<p class="fail">${esc(s.error||'failed')}</p>`;
  if(s.status==='done'){
   const rep=await (await fetch('/jobs/'+id+'/report')).json();
-  const q=rep.quantized||{},c=rep.comparison||{};
+  const q=rep.quantized||{},c=rep.comparison||{},base=rep.baseline||{};
   const gate=c.gate_pass===true?'<span class="pass">PASS</span>':c.gate_pass===false?'<span class="fail">FAIL</span>':'n/a';
+  let shrink='—';
+  if(base.disk_size_gb&&q.disk_size_gb&&q.disk_size_gb>0)shrink=(base.disk_size_gb/q.disk_size_gb).toFixed(1)+'× smaller';
   h+=`<div class="kv">
    <div><small>Perplexity Δ</small><b>${c.ppl_increase??'—'}</b></div>
    <div><small>Gate</small><b>${gate}</b></div>
    <div><small>Tokens/sec</small><b>${q.tokens_per_sec??'—'}</b></div>
-   <div><small>Disk GB</small><b>${q.disk_size_gb??'—'}</b></div>
+   <div><small>Size</small><b>${shrink}</b></div>
    <div><small>Method</small><b>${esc((rep.quant||{}).method??'')} ${(rep.quant||{}).quant??''}</b></div>
-  </div>`;
+  </div>
+  <p><a href="/jobs/${id}/report" target="_blank">full report.json →</a></p>`;
   const at=(rep.attempts||[]).map(a=>`<tr><td>${a.n}</td><td>${esc(a.method)}</td><td>${esc(a.quant)}</td><td>${a.ppl}</td><td>${a.gate_pass?'PASS':'FAIL'}</td></tr>`).join('');
   if(at)h+='<table><tr><th>#</th><th>Method</th><th>Quant</th><th>PPL</th><th>Gate</th></tr>'+at+'</table>';
  }
@@ -179,10 +230,19 @@ async function detail(id){
 $('go').onclick=async()=>{
  $('go').disabled=true;
  const r=await fetch('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({model:$('model').value,goal:GOAL,method:$('method').value})});
+  body:JSON.stringify({model:$('model').value,goal:GOAL,method:$('method').value,
+   max_samples:parseInt($('samples').value||'16'),max_attempts:parseInt($('attempts').value||'3')})});
  const j=await r.json();$('go').disabled=false;
  refreshJobs();show(j.id);
 };
+async function loadBackends(){
+ try{
+  const b=await (await fetch('/api/backends')).json();
+  $('backends').innerHTML=Object.entries(b).map(([k,v])=>
+   `<span class="dot ${v.available?'on':'off'}"></span>${k}`).join(' ');
+ }catch(e){$('backends').textContent='';}
+}
+loadBackends();
 const MODELS=[
  ["HuggingFaceTB/SmolLM2-135M","SmolLM2 135M · tiny, fast","llama"],
  ["HuggingFaceTB/SmolLM2-360M","SmolLM2 360M","llama"],
@@ -207,8 +267,18 @@ const GOALS=[
  ["cpu-efficient","CPU","no-GPU friendly"],
 ];
 let GOAL="balanced";
-$('modelpick').innerHTML=MODELS.map(m=>`<option value="${m[0]}">${m[1]} — ${m[0]}</option>`).join('');
-$('modelpick').onchange=e=>{$('model').value=e.target.value;};
+const GROUPS=[["Small & fast",0,3],["Qwen chat",3,7],["Popular",7,14],["Custom",14,14]];
+$('modelpick').innerHTML=GROUPS.map(g=>
+ `<optgroup label="${g[0]}">`+MODELS.slice(g[1],g[2]).map(m=>`<option value="${m[0]}">${m[1]}</option>`).join('')+`</optgroup>`).join('')
+ +`<option value="__custom">⌨ Custom HF id or local path…</option>`;
+function syncModel(){
+ const v=$('modelpick').value;
+ $('customwrap').style.display=v==='__custom'?'block':'none';
+ if(v!=='__custom')$('model').value=v;
+ const m=MODELS.find(x=>x[0]===$('model').value);
+ $('modelnote').textContent=m?`family ${m[2]} · ${m[1]}`:'Any public HF repo id or a local model directory.';
+}
+$('modelpick').onchange=syncModel;syncModel();
 $('goals').innerHTML=GOALS.map(g=>`<div class="goal${g[0]===GOAL?' sel':''}" data-g="${g[0]}"><b>${g[1]}</b><small>${g[2]}</small></div>`).join('');
 document.querySelectorAll('.goal').forEach(el=>el.onclick=()=>{
  GOAL=el.dataset.g;
@@ -238,9 +308,18 @@ refreshJobs();setInterval(()=>{if(!cur)refreshJobs();},5000);
         )
         conn.commit()
         conn.close()
+        max_samples = max(1, min(64, int(payload.get("max_samples", 16) or 16)))
+        max_attempts = max(1, min(5, int(payload.get("max_attempts", 3) or 3)))
         threading.Thread(
             target=run_job,
-            args=(job_id, payload.get("model", ""), payload.get("goal", "balanced"), payload.get("method", "auto")),
+            args=(
+                job_id,
+                payload.get("model", ""),
+                payload.get("goal", "balanced"),
+                payload.get("method", "auto"),
+                max_samples,
+                max_attempts,
+            ),
             daemon=True,
         ).start()
         return JSONResponse({"id": job_id, "status": "running"})
@@ -253,7 +332,12 @@ refreshJobs();setInterval(()=>{if(!cur)refreshJobs();},5000);
         ).fetchall()
         conn.close()
         keys = ("id", "model", "goal", "method", "status", "created", "updated", "run_dir", "error")
-        return JSONResponse([dict(zip(keys, r, strict=False)) for r in rows])
+        out = []
+        for r in rows:
+            job = dict(zip(keys, r, strict=False))
+            job["result"] = _result_summary(job.get("run_dir", ""))
+            out.append(job)
+        return JSONResponse(out)
 
     @app.get("/jobs/{job_id}")
     def job_status(job_id: str) -> JSONResponse:
