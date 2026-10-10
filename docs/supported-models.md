@@ -31,6 +31,23 @@ AWQ: implemented but blocked — llmcompressor 0.14's tracer is incompatible wit
 (float activations fed as input_ids, systemic), and gptqmodel's AWQ kernel needs a CUDA Toolkit JIT build.
 Tracked as experimental; "GPTQ or AWQ" DoD requirement is met by GPTQ.
 
+## DeepSeek-R1-Distill-Qwen-1.5B (qwen2, MIT, chat template ✅)
+
+WikiText-2 test, 8 samples, CUDA. Baseline (bf16): **ppl 48.942, 36.5 tok/s, 3.56 GB**.
+
+| Backend | Quant | PPL | ΔPPL | tok/s | Disk | Gate (5%) |
+|---|---|---|---|---|---|---|
+| HQQ (CUDA) | 8bit-g64 (escalated) | 49.051 | +0.2% | 12.05 | 2.34 GB | PASS |
+
+Takeaway: retry ladder worked — 4-bit missed, 8-bit passed near-lossless. (Distill reasoning models show high
+absolute PPL on WikiText-2; the delta is what matters.)
+
+## Intake-verified, not yet measured end-to-end
+
+SmolLM2-360M/1.7B, Qwen2.5-1.5B/3B/7B, TinyLlama-1.1B, Mistral-7B, Phi-3-mini — full `analyze` profiles pass
+(arch, license, memory estimates); same backend code paths as the measured rows above. Gated (Llama-3.2,
+Gemma-2): need `huggingface-cli login` + access approval before weights are fetchable.
+
 ## Backend × architecture matrix
 
 | Backend | Llama | Qwen2 | Mistral | Gemma | Phi | Needs |
