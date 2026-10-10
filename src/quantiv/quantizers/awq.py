@@ -37,9 +37,7 @@ def _valid_group_size(model_id: str, requested: int) -> int:
             continue
         if not dims or all(d % gs == 0 for d in dims):
             return gs
-    raise ValueError(
-        f"No valid AWQ group size for dims {dims} (requested {requested}). Try --group-size 8."
-    )
+    raise ValueError(f"No valid AWQ group size for dims {dims} (requested {requested}). Try --group-size 8.")
 
 
 class AWQQuantizer(Quantizer):
@@ -108,8 +106,7 @@ class AWQQuantizer(Quantizer):
             quant=f"W4A16-g{gs}-cal:{cal.dataset_hash}",
             success=True,
             message=(
-                f"AWQ W4A16-g{gs} on CUDA via gptqmodel "
-                f"(calibration: {cal.source} x{cal.num_samples}; {ckpt_note})"
+                f"AWQ W4A16-g{gs} on CUDA via gptqmodel (calibration: {cal.source} x{cal.num_samples}; {ckpt_note})"
             ),
             files=files,
             elapsed_s=round(time.time() - t0, 2),
