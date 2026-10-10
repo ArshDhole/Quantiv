@@ -245,17 +245,106 @@ def eval(
 
 @app.command()
 def compare(run_a: str = typer.Argument(...), run_b: str = typer.Argument(...)) -> None:
-    """Compare two runs (Phase 2+)."""
-    console.print(f"[yellow]Phase 1 stub:[/yellow] would compare {run_a} vs {run_b}.")
+    """Side-by-side table of two runs' report.json files (all numbers measured)."""
+    import json as _json
+
+    def load(run: str) -> dict:
+        p = Path(run) / "report.json"
+        if not p.exists():
+            console.print(f"[red]No report.json in {run}[/red]")
+            raise typer.Exit(2)
+        return _json.loads(p.read_text(encoding="utf-8"))
+
+    a, b = load(run_a), load(run_b)
+    table = Table(title=f"Compare: {Path(run_a).name} vs {Path(run_b).name}")
+    table.add_column("Metric")
+    table.add_column(Path(run_a).name)
+    table.add_column(Path(run_b).name)
+    for label, key in (
+        ("Method", ("quant", "method")),
+        ("Quant", ("quant", "quant")),
+        ("PPL increase", ("comparison", "ppl_increase")),
+        ("Gate", ("comparison", "gate_pass")),
+    ):
+        node_a, node_b = a, b
+        for k in key:
+            node_a, node_b = node_a.get(k), node_b.get(k)
+        table.add_row(label, str(node_a), str(node_b))
+    for side, rep in (("A", a), ("B", b)):
+        q = rep.get("quantized", {})
+        table.add_row(f"{side} tok/s", str(q.get("tokens_per_sec")), "")
+        table.add_row(f"{side} disk GB", str(q.get("disk_size_gb")), "")
+    console.print(table)
 
 
 @app.command()
-def package(run_dir: str = typer.Argument(...), push_to_hub: bool = typer.Option(False, "--push-to-hub")) -> None:
-    """Package run dir → manifest + model card (Phase 6)."""
-    if push_to_hub:
-        console.print("[red]Refusing --push-to-hub in Phase 1: license check + manifest required (Phase 6).[/red]")
+def package(
+    run_dir: str = typer.Argument(...),
+    push_to_hub: bool = typer.Option(False, "--push-to-hub"),
+    repo_id: str = typer.Option("", "--repo-id", help="Hub repo for --push-to-hub"),
+    i_accept_license: bool = typer.Option(False, "--i-accept-license", help="Confirm publishing rights"),
+) -> None:
+    """Validate run dir, write MODEL_CARD.md, optionally upload (license-gated)."""
+    import json as _json
+
+    from quantiv.packaging import (
+        build_model_card,
+        check_publish_allowed,
+        manifest_hash,
+        write_model_card,
+    )
+
+    rd = Path(run_dir)
+    rep_p, man_p = rd / "report.json", rd / "quantiv_manifest.json"
+    if not rep_p.exists() or not man_p.exists():
+        console.print(f"[red]{run_dir} is not a complete run (need report.json + manifest).[/red]")
+        raise typer.Exit(2)
+    rep = _json.loads(rep_p.read_text(encoding="utf-8"))
+    man = _json.loads(man_p.read_text(encoding="utf-8"))
+    model = man.get("model", rep.get("baseline", {}).get("model", "unknown"))
+    try:
+        from quantiv.analyzer import analyze_model
+
+        prof = analyze_model(model)
+        lic, gated = prof.license, prof.gated
+    except Exception:
+        lic, gated = None, False
+    card = build_model_card(model, rep.get("quant", {}), rep.get("comparison", {}), lic, manifest_hash(man))
+    card_p = write_model_card(rd, card)
+    console.print(f"[green]Wrote {card_p}[/green]")
+    if not push_to_hub:
+        return
+    verdict = check_publish_allowed(lic, gated, i_accept_license)
+    console.print(f"License gate: {verdict.reason}")
+    if not verdict.allowed:
         raise typer.Exit(3)
-    console.print(f"[yellow]Phase 1 stub:[/yellow] would package {run_dir}.")
+    if not repo_id:
+        console.print("[red]--push-to-hub needs --repo-id.[/red]")
+        raise typer.Exit(2)
+    try:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        api.create_repo(repo_id, exist_ok=True)
+        api.upload_folder(repo_id=repo_id, folder_path=str(rd))
+        console.print(f"[green]Uploaded to {repo_id}[/green]")
+    except Exception as e:
+        console.print(f"[red]Upload failed: {e}[/red]")
+        raise typer.Exit(4) from e
+
+
+@app.command()
+def dashboard(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8020, "--port"),
+) -> None:
+    """Serve the optional web dashboard (submit jobs, poll progress, fetch reports)."""
+    import uvicorn
+
+    from quantiv.dashboard import create_app
+
+    console.print(f"Serving Quantiv dashboard on http://{host}:{port}")
+    uvicorn.run(create_app(), host=host, port=port)
 
 
 @app.command()
