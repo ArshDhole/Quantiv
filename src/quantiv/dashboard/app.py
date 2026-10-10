@@ -78,6 +78,8 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
             logs.append(m)
             set_job(job_id, log="\n".join(logs[-200:]))
 
+        set_job(job_id, log=f"job accepted · {model} · warming up engine…")
+
         try:
             out = run_pipeline(
                 model,
@@ -189,6 +191,10 @@ padding:26px 28px;margin:26px 0 8px;position:relative;overflow:hidden}
 .stepsline span{flex:1;height:4px;border-radius:2px;background:var(--line)}
 .stepsline span.on{background:var(--acc)}
 .stepsline span.done{background:var(--ok)}
+.pbar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin:10px 0 2px}
+.pbar span{display:block;height:100%;width:35%;border-radius:3px;background:var(--acc);
+animation:slide 1.4s ease-in-out infinite}
+@keyframes slide{0%{margin-left:-35%}100%{margin-left:100%}}
 .hero{margin:24px 0 18px;max-width:660px}
 .hero h1{font:700 clamp(30px,4.2vw,44px)/1.06 var(--disp);margin:0 0 8px;letter-spacing:-.025em}
 .hero h1 em{font-style:normal;color:var(--acc)}
@@ -215,14 +221,9 @@ tr:last-child td{border-bottom:0}
 .b-run{background:#f0a83226;color:var(--warn)}.b-done{background:#7ee2a026;color:var(--ok)}
 .b-fail{background:#ff8f8626;color:var(--bad)}
 a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}
-#detail h3{margin:4px 0 10px}.mono{white-space:pre-wrap;background:#0a0c10;border:1px solid var(--line);
-border-radius:8px;padding:10px;font-size:12px;max-height:240px;overflow:auto;color:#c9c2b0}
-.cert{border:1px dashed #ffffff30;border-radius:10px;padding:18px 20px;margin:14px 0;position:relative;background:#0a0c10}
-.cert .stamp{position:absolute;top:14px;right:16px}
-.cert h4{margin:0 0 10px;font-size:13px;letter-spacing:.2em;color:var(--dim)}
-.certgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+#detail h3{margin:4px 0 10px}
 .certgrid small{display:block;color:var(--dim);font-size:10.5px;letter-spacing:.1em}
-.certgrid b{font-size:17px;font-variant-numeric:tabular-nums}
+.certgrid b{font-size:17px;font-variant-numeric:tabular-nums;color:var(--ink)}
 .pass{color:var(--ok);font-weight:700}.fail{color:var(--bad);font-weight:700}
 .hint{color:var(--dim);font-size:12.5px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
@@ -279,8 +280,11 @@ footer{text-align:center;color:var(--dim);font-size:12px;margin:26px 0 10px}
 <div class="planline" id="planprev">price check loading…</div></div>
 </div>
 <div class="composer" id="active" style="display:none">
-<div style="display:flex;align-items:center;gap:10px"><b id="atitle">Run</b><span id="abadge"></span></div>
+<div style="display:flex;align-items:center;gap:10px"><b id="atitle">Run</b><span id="abadge"></span>
+<span class="hint" id="aelapsed" style="margin-left:auto"></span></div>
+<div class="pbar"><span></span></div>
 <div class="stepsline" id="asteps"><span></span><span></span><span></span><span></span></div>
+<div class="hint" id="ahint">warming up… first progress lands after the baseline loads (1–3 min on small models).</div>
 <div class="mono" id="alog" style="max-height:180px"></div>
 </div>
 <div class="panel"><h2>Runs</h2><table id="jobs">
@@ -356,7 +360,12 @@ async function detail(id){
    $('atitle').textContent='Running · '+s.model;
    $('abadge').innerHTML=badge(s.status);
    paintSteps(stepFromLog(s.log));
-   $('alog').textContent=s.log||'…';
+   const ago=s.created?Math.max(0,Date.now()/1000-s.created):0;
+   const mm=Math.floor(ago/60),ss=Math.floor(ago%60);
+   $('aelapsed').textContent=`elapsed ${mm}:${String(ss).padStart(2,'0')} · small models typically take 5–15 min`;
+   const lg=$('alog');lg.textContent=s.log||'…';lg.scrollTop=lg.scrollHeight;
+   const hint=$('ahint');
+   if(hint)hint.textContent=/attempt \d/.test(s.log||'')?'quantizing + evaluating this attempt…':/baseline/.test(s.log||'')?'baseline measured · starting attempts…':'warming up… first progress lands after the baseline loads (1–3 min on small models).';
   }else{act.style.display='none';}
  }
  if(s.status==='done'||s.status==='failed'){clearInterval(watch);refreshJobs();}

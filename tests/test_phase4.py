@@ -72,3 +72,17 @@ def test_pipeline_single_attempt_pass(tiny_hf_model, tmp_path):
     assert out["attempts"][0]["gate_pass"] is True
     assert (tmp_path / "pipe" / "report.md").exists()
     assert (tmp_path / "pipe" / "report.json").exists()
+
+
+def test_pipeline_emits_lifecycle_events(tiny_hf_model, tmp_path):
+    """The dashboard polls these — first event must arrive before slow work."""
+    from quantiv.planner import run_pipeline
+
+    seen: list[str] = []
+    run_pipeline(
+        str(tiny_hf_model), goal="balanced", method="hqq", bits=4, device="cpu",
+        max_ppl_increase=50.0, max_attempts=1, max_samples=2, group_size=8,
+        run_dir=tmp_path / "pipe2", on_step=seen.append,
+    )
+    assert seen and seen[0].startswith("plan:")
+    assert any("attempt 1/1" in m for m in seen)

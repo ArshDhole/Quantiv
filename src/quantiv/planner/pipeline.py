@@ -96,6 +96,10 @@ def run_pipeline(
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     ladder = build_ladder(method, bits, goal, max_attempts)
+    if on_step:
+        plan = ", ".join(f"{s['method']}/{s['bits']}b{' +mixed' if s['mixed'] else ''}" for s in ladder)
+        on_step(f"plan: {plan} (max {len(ladder)} attempts)")
+        on_step("analyzing + loading baseline model…")
     baseline = evaluate_hf_model(model, device=device, max_samples=max_samples)
     if on_step:
         on_step(f"baseline ppl={baseline.perplexity}")
@@ -107,6 +111,8 @@ def run_pipeline(
         qdir = run_dir / f"attempt{i}-{step['method']}"
         mixed_map = None
         note = ""
+        if on_step:
+            on_step(f"attempt {i}/{len(ladder)}: quantizing {step['method']} {step['bits']}b…")
         if step["mixed"]:
             if on_step:
                 on_step("gate missed: running sensitivity for mixed precision")
