@@ -138,64 +138,76 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quantiv — auto-quantize LLMs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0d11;--panel:#14171e;--panel2:#101319;--line:#262c37;--ink:#ece7d9;--dim:#8f8875;
---acc:#f0a832;--acc-ink:#171106;--ok:#7ee2a0;--ok-soft:#7ee2a022;--bad:#ff8f86;--bad-soft:#ff8f8622;
---warn:#f0a832;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+:root{--bg:#f7f5f0;--panel:#fffdf9;--line:#e4ded2;--ink:#1b1917;--dim:#746c5e;
+--acc:#0e7c6b;--acc-soft:#e2f0eb;--ok:#1a7f37;--ok-soft:#ddf0e1;--bad:#c92a22;--bad-soft:#fae7e5;
+--warn:#9a6700;--warn-soft:#faf0d7;
+--disp:"Space Grotesk",-apple-system,"Segoe UI",Roboto,sans-serif;
+--mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Consolas,monospace}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
-font:15px/1.6 var(--mono);
-background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);
-background-size:34px 34px}
-.wrap{max-width:1060px;margin:0 auto;padding:22px 26px 44px}
-.topbar{display:flex;align-items:center;gap:12px;padding:12px 0}
-.mark{width:32px;height:32px;border-radius:8px;background:var(--acc);color:var(--acc-ink);
-display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px}
-.brand{font-weight:800;font-size:16px;letter-spacing:.02em}
-.brand small{display:block;font-weight:400;font-size:10px;letter-spacing:.3em;color:var(--dim)}
-.pills{margin-left:auto;display:flex;gap:8px}
+font:14.5px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:20px 24px 48px}
+.topbar{display:flex;align-items:center;gap:11px;padding:14px 0}
+.mark{width:30px;height:30px;border-radius:8px;background:var(--ink);color:#fff;
+display:flex;align-items:center;justify-content:center;font:700 16px var(--disp)}
+.brand{font:700 16px var(--disp);letter-spacing:-.01em}
+.brand small{display:block;font:400 9.5px var(--mono);letter-spacing:.3em;color:var(--dim)}
+.pills{margin-left:auto;display:flex;gap:8px;align-items:center}
 .pill{border:1px solid var(--line);background:var(--panel);border-radius:20px;
-padding:5px 14px;font-size:12px;color:var(--dim)}
+padding:4px 13px;font:400 12px var(--mono);color:var(--dim)}
 .pill b{color:var(--ink)}.dotlive{color:var(--ok)}
+.gh{font-size:12.5px}
+.hero{margin:26px 0 20px;max-width:640px}
+.eyebrow{font:600 11px var(--mono);letter-spacing:.3em;color:var(--acc);margin-bottom:10px}
+.hero h1{font:700 clamp(32px,4.4vw,46px)/1.05 var(--disp);margin:0 0 10px;letter-spacing:-.025em}
+.hero h1 em{font-style:normal;color:var(--acc)}
+.lede{color:#4a4438;margin:0;font-size:15.5px}
+.composer{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+padding:20px 22px;margin:0 0 14px;box-shadow:0 2px 10px #1b191708}
+.composer .row{display:grid;gap:12px}
+.composer .row.main{grid-template-columns:1.6fr 1fr auto}
+.composer .row.sub{grid-template-columns:1fr 1fr;margin-top:12px}
+.goals{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 0}
+.goal{border:1px solid var(--line);border-radius:8px;padding:7px 14px;cursor:pointer;background:#fff;font-size:13px}
+.goal small{color:var(--dim);font-size:11px;margin-left:6px}
+.goal.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;background:var(--acc-soft);font-weight:700}
+.planline{margin-top:12px;font:400 12.5px var(--mono);color:var(--dim)}
+.planline b{color:var(--ink)}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:5px;font-weight:700;
+letter-spacing:.09em;text-transform:uppercase}
+input,select{width:100%;background:#fff;border:1px solid var(--line);color:var(--ink);
+border-radius:8px;padding:9px 12px;font-size:14px;font-family:inherit}
+input:focus,select:focus{outline:2px solid var(--acc-soft);border-color:var(--acc)}
+button{background:var(--acc);border:0;color:#fff;border-radius:8px;padding:10px 26px;
+font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+button:hover{filter:brightness(1.08)}button:disabled{opacity:.55;cursor:wait}
 .ledger{border:1px solid var(--line);border-radius:12px;background:var(--panel2);
 padding:26px 28px;margin:26px 0 8px;position:relative;overflow:hidden}
-.ledger h1{font-size:clamp(30px,4.6vw,50px);line-height:1.04;margin:6px 0 12px;
-letter-spacing:-.02em;font-weight:800}
-.ledger h1 em{font-style:normal;color:var(--acc)}
-.eyebrow{font-size:11.5px;letter-spacing:.32em;color:var(--dim)}
-.lede{color:#c9c2b0;max-width:60em;margin:0 0 18px;font-size:15px}
-.receipt{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:center;
-border:1px dashed #ffffff2e;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px}
-.receipt .cell small{display:block;color:var(--dim);font-size:10.5px;letter-spacing:.14em}
-.receipt .cell b{font-size:19px;font-variant-numeric:tabular-nums}
-.receipt .arrow{color:var(--acc);font-size:20px}
-.receipt .stamp{border:2px solid var(--ok);color:var(--ok);border-radius:6px;padding:6px 14px;
-font-weight:800;letter-spacing:.14em;transform:rotate(-4deg);font-size:13px;white-space:nowrap}
-#bits{width:100%;height:120px;display:block;margin-top:6px}
-.bitcap{display:flex;justify-content:space-between;color:var(--dim);font-size:11.5px;letter-spacing:.12em}
-.bench{display:grid;grid-template-columns:220px 1fr;gap:0;margin-top:22px;border:1px solid var(--line);
-border-radius:14px;overflow:hidden;background:var(--panel)}
-.rail{background:var(--panel2);padding:22px 0;border-right:1px solid var(--line)}
-.rail div{padding:11px 22px;color:var(--dim);font-size:13px;cursor:pointer;border-left:3px solid transparent}
-.rail div.on{color:var(--ink);border-left-color:var(--acc);background:#ffffff06}
-.rail div b{color:var(--acc);margin-right:8px}
-.stage{padding:24px 26px;min-height:340px}
-.stage h3{margin:0 0 4px;font-size:21px;letter-spacing:-.01em}
-.stage .k{font-size:11px;letter-spacing:.26em;color:var(--dim);margin-bottom:6px}
-.stage p.d{color:var(--dim);font-size:13px;margin:0 0 16px;max-width:52em}
-label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:5px;font-weight:600;letter-spacing:.08em}
-input,select{width:100%;background:#0a0c10;border:1px solid var(--line);color:var(--ink);
-border-radius:8px;padding:9px 12px;font-size:14px;font-family:inherit}
-input:focus,select:focus{outline:1px solid var(--acc);border-color:var(--acc)}
-button{background:var(--acc);border:0;color:var(--acc-ink);border-radius:8px;padding:11px 20px;
-font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;width:100%}
-button:hover{filter:brightness(1.1)}button:disabled{opacity:.55;cursor:wait}
-.goals{display:grid;gap:8px;margin:4px 0 12px}
-.goal{border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;background:#0a0c10}
-.goal b{display:block;font-size:13.5px}.goal small{color:var(--dim);font-size:11.5px}
-.goal.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;background:#f0a83214}
-.planprev{margin-top:14px;font-size:12.5px}
-.planprev table{font-size:12.5px}
-table{width:100%;border-collapse:collapse;font-size:13px}
+.stepsline{display:flex;gap:6px;margin:12px 0 4px}
+.stepsline span{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.stepsline span.on{background:var(--acc)}
+.stepsline span.done{background:var(--ok)}
+.hero{margin:24px 0 18px;max-width:660px}
+.hero h1{font:700 clamp(30px,4.2vw,44px)/1.06 var(--disp);margin:0 0 8px;letter-spacing:-.025em}
+.hero h1 em{font-style:normal;color:var(--acc)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:20px;
+padding:3px 12px;font:400 12px var(--mono);color:var(--dim)}
+.chip b{color:var(--ink)}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:5px;font-weight:700;
+letter-spacing:.09em;text-transform:uppercase}
+.goals .goal{background:#fff}
+.goal.sel{background:var(--acc-soft)}
+.cert{border:1.5px dashed var(--line);border-radius:12px;padding:18px 20px;margin:14px 0;
+position:relative;background:#fffdf9}
+.cert .stamp{position:absolute;top:14px;right:16px;border:2px solid var(--ok);color:var(--ok);
+border-radius:6px;padding:5px 13px;font-weight:800;letter-spacing:.12em;transform:rotate(-3deg);font-size:12.5px}
+.cert .stamp.bad{border-color:var(--bad);color:var(--bad)}
+.cert h4{margin:0 0 10px;font:600 12px var(--mono);letter-spacing:.22em;color:var(--dim)}
+.certgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.08em}
 tr:last-child td{border-bottom:0}
@@ -219,33 +231,61 @@ summary{cursor:pointer}
 .grid{display:grid;gap:10px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px}
 .panel h2{font-size:11.5px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.14em;color:var(--dim);font-weight:700}
+.eyebrow{font:600 11px var(--mono);letter-spacing:.3em;color:var(--acc);margin-bottom:8px}
+.lede{color:#4a4438;margin:0;font-size:15px}
+.mono{white-space:pre-wrap;background:#f1ede4;border:1px solid var(--line);
+border-radius:8px;padding:10px;font:400 12px var(--mono);max-height:240px;overflow:auto;color:#3d382e}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+.kv div{background:#faf8f2;border:1px solid var(--line);border-radius:8px;padding:9px 13px}
+.kv small{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.kv b{font-size:18px;font-variant-numeric:tabular-nums}
+.planline{margin-top:12px;font:400 12.5px var(--mono);color:var(--dim)}
+.planline b{color:var(--ink)}
+.planline table{font-size:12.5px;margin-top:8px}
+.hint{color:var(--dim);font-size:12.5px}
+.pass{color:var(--ok);font-weight:700}.fail{color:var(--bad);font-weight:700}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.dot.on{background:var(--ok)}.dot.off{background:#cfc4ab}
+a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.06em}
+tr:last-child td{border-bottom:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:16px}
+.panel h2{font-size:11.5px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.14em;color:var(--dim);font-weight:700}
 footer{text-align:center;color:var(--dim);font-size:12px;margin:26px 0 10px}
-@media(max-width:860px){.bench{grid-template-columns:1fr}.rail{display:flex;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}.receipt{grid-template-columns:1fr;text-align:center}.receipt .arrow{transform:rotate(90deg)}}
+@media(max-width:860px){.composer .row.main{grid-template-columns:1fr}.hero h1{font-size:34px}}
 </style></head><body><div class="wrap">
-<div class="topbar"><div class="mark">Q</div><div class="brand">Quantiv<small>PRECISION LAB · v1.0</small></div>
-<div class="pills"><span class="pill">planner: auto</span><span class="pill"><span class="dotlive">●</span>&nbsp;<b id="nb">…</b>&nbsp;backends live</span></div></div>
-<div class="ledger">
+<div class="topbar"><div class="mark">Q</div><div class="brand">Quantiv<small>v1.0 · PRECISION LAB</small></div>
+<div class="pills"><span class="pill"><span class="dotlive">●</span>&nbsp;<b id="nb">…</b>&nbsp;backends</span><a class="pill gh" href="https://github.com/ArshDhole/Quantiv">GitHub →</a></div></div>
+<div class="hero">
 <div class="eyebrow">EVERY BIT, ACCOUNTED FOR</div>
-<h1>Smaller models.<br><em>Receipts included.</em></h1>
-<p class="lede">Quantiv packs an open-source LLM into fewer bits per weight — then proves, with measured perplexity, speed and memory numbers, that nothing important was lost. Each run ships a certificate. Nothing is ever fabricated.</p>
-<div class="receipt">
-<div class="cell"><small>IN · fp16</small><b>272 MB</b></div><div class="arrow">→</div>
-<div class="cell"><small>OUT · 8-bit</small><b>173 MB</b></div><div class="arrow">→</div>
-<div class="cell"><small>smolLM2-135M · measured</small><b>Δppl −0.1%</b></div>
-<div class="stamp">GATE&nbsp;PASS</div>
+<h1>Smaller models. <em>Receipts included.</em></h1>
+<p class="lede">Pick a model and a goal — Quantiv quantizes it, measures both versions, and serves the verdict.</p>
+<div class="chips"><span class="chip"><b>05</b> backends</span><span class="chip"><b>44</b> tests green</span><span class="chip"><b>$0</b> offline</span></div>
 </div>
-<canvas id="bits"></canvas>
-<div class="bitcap"><span>FP16 · 16 BITS/WEIGHT</span><span>PACKING…</span><span>INT4 · 4 BITS/WEIGHT</span></div>
+<div class="composer">
+<div class="row main">
+<div><label>Model</label><select id="modelpick"></select>
+<div id="customwrap" style="display:none;margin-top:8px"><input id="model" value="HuggingFaceTB/SmolLM2-135M" placeholder="org/model-name or /local/path"></div>
+<div class="hint" id="modelnote" style="margin-top:6px"></div></div>
+<div><label>Engine</label><select id="method"><option value="auto">Auto — planner picks</option><option>gptq</option><option>awq</option><option>hqq</option><option>gguf</option><option>bnb</option></select>
+<div style="margin-top:10px"><label>Eval samples · Attempts</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<select id="samples"><option>8</option><option selected>16</option><option>32</option></select>
+<select id="attempts"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div></div></div>
+<div style="display:flex;align-items:flex-end"><button id="go">Quantize →</button></div>
 </div>
-<div class="bench">
-<div class="rail" id="rail">
-<div data-s="0" class="on"><b>01</b>INTAKE</div>
-<div data-s="1"><b>02</b>CALIBRATE</div>
-<div data-s="2"><b>03</b>VERIFY &amp; FIRE</div>
-<div data-s="3"><b>04</b>LEDGER</div>
+<div style="margin-top:14px"><label>Goal</label><div class="goals" id="goals" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));display:grid"></div>
+<div class="planline" id="planprev">price check loading…</div></div>
 </div>
-<div class="stage" id="stage"></div>
+<div class="composer" id="active" style="display:none">
+<div style="display:flex;align-items:center;gap:10px"><b id="atitle">Run</b><span id="abadge"></span></div>
+<div class="stepsline" id="asteps"><span></span><span></span><span></span><span></span></div>
+<div class="mono" id="alog" style="max-height:180px"></div>
 </div>
+<div class="panel"><h2>Runs</h2><table id="jobs">
+<tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr>
+</table></div>
 <div class="panel" id="detail" style="display:none"><h2>Certificate of quantization</h2><div id="d"></div></div>
 <footer>Quantiv · <a href="https://github.com/ArshDhole/Quantiv">GitHub</a> · every number measured</footer>
 </div>
@@ -253,44 +293,20 @@ footer{text-align:center;color:var(--dim);font-size:12px;margin:26px 0 10px}
 const $=id=>document.getElementById(id);
 const badge=s=>s==='done'?'<span class="badge b-done">done</span>':s==='failed'?'<span class="badge b-fail">failed</span>':'<span class="badge b-run">running</span>';
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-let watch=null,cur=null,STAGE=0;
-const STAGE_META=[
- ["01 · INTAKE","What are we weighing?","Pick a model to put on the bench."],
- ["02 · CALIBRATE","What does good look like?","Set the goal — the planner prices every strategy before you spend a GPU-minute."],
- ["03 · VERIFY & FIRE","Run it, then check the receipt.","Quantize, measure both versions, gate the result. Escalates automatically on a miss."],
- ["04 · LEDGER","Every run, on record.","Finished and running jobs with their verdicts. Nothing is ever fabricated."],
-];
-function stageHTML(i){
- if(i===0)return `<div class="k">01 — INTAKE</div><h3>What are we weighing?</h3>
-  <p class="d">Pick a model to put on the bench. Anything public works — or point at a local directory.</p>
-  <label>MODEL</label><select id="modelpick"></select>
-  <div id="customwrap" style="display:none;margin-top:8px"><input id="model" value="HuggingFaceTB/SmolLM2-135M" placeholder="org/model-name or /local/path"></div>
-  <p class="hint" id="modelnote"></p>`;
- if(i===1)return `<div class="k">02 — CALIBRATE</div><h3>What does good look like?</h3>
-  <p class="d">Set the goal. The bench prices every strategy <i>before</i> spending a GPU-minute.</p>
-  <div class="goals" id="goals"></div><div id="planprev" class="planprev hint">pick a model to price strategies…</div>`;
- if(i===2)return `<div class="k">03 — VERIFY &amp; FIRE</div><h3>Run it, check the receipt.</h3>
-  <p class="d">Quantize → measure both versions → gate. A miss escalates automatically (bounded).</p>
-  <div><label>ENGINE</label><select id="method"><option value="auto">Auto — planner picks</option><option>gptq</option><option>awq</option><option>hqq</option><option>gguf</option><option>bnb</option></select></div>
-  <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
-  <div><label>EVAL SAMPLES</label><select id="samples"><option>8</option><option selected>16</option><option>32</option></select></div>
-  <div><label>MAX ATTEMPTS</label><select id="attempts"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div></div>
-  <div style="margin-top:12px"><button id="go">▶ Quantize</button></div>`;
- return `<div class="k">04 — LEDGER</div><h3>Every run, on record.</h3>
-  <p class="d">Finished and running jobs with verdicts. Click a row for its certificate.</p>
-  <table id="jobs"><tr><th>Run</th><th>Model</th><th>Goal</th><th>Status</th><th>Result</th><th></th></tr></table>
-  <div id="d" style="margin-top:14px"></div>`;
+let watch=null,cur=null;
+const STEPS=["Analyze","Quantize","Evaluate","Report"];
+function paintSteps(done){
+ const el=$('asteps');if(!el)return;
+ el.innerHTML=STEPS.map((s,i)=>`<span class="${i<done?'done':i===done?'on':''}" title="${s}"></span>`).join('');
 }
-function setStage(i){
- STAGE=i;
- document.querySelectorAll('#rail div').forEach((el,k)=>el.classList.toggle('on',k===i));
- $('stage').innerHTML=stageHTML(i);
- if(i===0)initIntake();
- if(i===1)initCalibrate();
- if(i===2)initFire();
- if(i===3){refreshJobs();}
+function stepFromLog(log){
+ const L=(log||'').toLowerCase();
+ if(/report\.json|certificate/.test(L))return 4;
+ if(/gate=|attempt \d/.test(L))return 3;
+ if(/quantiz|calibrat/.test(L))return 2;
+ if(/baseline|analyz/.test(L))return 1;
+ return 0;
 }
-document.querySelectorAll('#rail div').forEach(el=>el.onclick=()=>setStage(parseInt(el.dataset.s)));
 async function refreshJobs(){
  const t=$('jobs');
  if(!t)return;
@@ -302,9 +318,10 @@ async function refreshJobs(){
 }
 async function show(id){
  cur=id;
- if(STAGE!==3)setStage(3);
+ const det=$('detail');if(det)det.style.display='block';
  clearInterval(watch);await detail(id);
  watch=setInterval(()=>detail(id),2000);
+ if(det)det.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 async function detail(id){
  const s=await (await fetch('/jobs/'+id)).json();
@@ -332,6 +349,16 @@ async function detail(id){
  }
  if(s.log)h+=`<h3>Log</h3><div class="mono">${esc(s.log)}</div>`;
  const d=$('d');if(d)d.innerHTML=h;
+ const act=$('active');
+ if(act){
+  if(s.status==='running'){
+   act.style.display='block';
+   $('atitle').textContent='Running · '+s.model;
+   $('abadge').innerHTML=badge(s.status);
+   paintSteps(stepFromLog(s.log));
+   $('alog').textContent=s.log||'…';
+  }else{act.style.display='none';}
+ }
  if(s.status==='done'||s.status==='failed'){clearInterval(watch);refreshJobs();}
 }
 function fireSubmit(){
@@ -375,29 +402,6 @@ async function price(){
  },400);
 }
 function initFire(){fireSubmit();}
-function paintBits(){
- const cv=$('bits');if(!cv)return;
- const ctx=cv.getContext('2d');
- const W=cv.width=cv.offsetWidth*2,H=cv.height=240;
- let t=0;
- function frame(){
-  t+=0.016;ctx.clearRect(0,0,W,H);
-  const n=16,bw=W/(n+2);
-  for(let i=0;i<n;i++){
-   const ph=(t*0.7+i*0.35)%4;
-   const k=ph<2?1:(3-ph); // 1 → hold → merge
-   const gx=(i%4)*2+Math.floor(i/4)%2, target=Math.floor(i/4);
-   const x=(gx+(target-gx)*Math.max(0,k-1))*(bw)+bw;
-   const s=bw*0.62*(1-0.35*Math.max(0,k-1));
-   const a=0.25+0.75*Math.min(1,2-k+1);
-   ctx.fillStyle=i%2?`rgba(240,168,50,${a})`:`rgba(236,231,217,${a*0.8})`;
-   const y=H/2-s/2+Math.sin(t*2+i)*4;
-   ctx.fillRect(x,y,s,s*0.7);
-  }
-  requestAnimationFrame(frame);
- }
- frame();
-}
 async function loadBackends(){
  try{
   const b=await (await fetch('/api/backends')).json();
@@ -444,8 +448,8 @@ function syncModel(){
  price();
 }
 let MODEL='HuggingFaceTB/SmolLM2-135M';
-setStage(0);paintBits();
-setInterval(()=>{if(STAGE===3&&!cur)refreshJobs();},5000);
+initIntake();initCalibrate();initFire();loadBackends();refreshJobs();
+setInterval(()=>{if(!cur)refreshJobs();},5000);
 </script></body></html>"""
 
     @app.post("/jobs")
