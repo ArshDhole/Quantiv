@@ -228,4 +228,55 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
             return JSONResponse({"status": row[1], "report": None})
         return JSONResponse(json.loads(rep.read_text(encoding="utf-8")))
 
+    @app.get("/jobs/{job_id}/download")
+    def job_download(job_id: str):
+        from fastapi.responses import FileResponse
+
+        conn = _db(db_path)
+        row = conn.execute("SELECT run_dir,status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return JSONResponse({"error": "unknown job"}, status_code=404)
+        if row[1] != "done":
+            return JSONResponse({"error": f"job is {row[1]}, nothing to download yet"}, status_code=409)
+        try:
+            archive = build_artifact_zip(Path(row[0]))
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"error": str(e)}, status_code=500)
+        return FileResponse(archive, filename=archive.name, media_type="application/zip")
+
     return app
+
+
+def build_artifact_zip(run_dir: str | Path) -> Path:
+    """Bundle the final quantized artifact + reports into a cached zip.
+
+    Uses report.json's attempt_dir (falls back to legacy quantized/ layout).
+    Raises FileNotFoundError/RuntimeError with a clear message when incomplete.
+    """
+    import zipfile
+
+    run_dir = Path(run_dir)
+    rep_file = run_dir / "report.json"
+    if not rep_file.exists():
+        raise FileNotFoundError(f"no report.json in {run_dir}")
+    rep = json.loads(rep_file.read_text(encoding="utf-8"))
+    artifact = rep.get("quant", {}).get("attempt_dir") or rep.get("quantized", {}).get("model")
+    artifact_dir = Path(artifact) if artifact else None
+    if artifact_dir is None or not artifact_dir.exists():
+        legacy = run_dir / "quantized"
+        artifact_dir = legacy if legacy.exists() else None
+    if artifact_dir is None:
+        raise FileNotFoundError("quantized artifact directory is missing")
+    files = [p for p in artifact_dir.iterdir() if p.is_file()]
+    if not files:
+        raise RuntimeError("quantized artifact directory is empty")
+    archive = run_dir / f"{run_dir.name}-artifact.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in files:
+            z.write(p, f"quantized/{p.name}")
+        for extra in ("report.json", "report.md", "MODEL_CARD.md", "quantiv_manifest.json"):
+            ep = run_dir / extra
+            if ep.exists():
+                z.write(ep, extra)
+    return archive

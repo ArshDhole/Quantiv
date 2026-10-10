@@ -353,6 +353,15 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
     baseDisk && q.disk_size_gb && q.disk_size_gb > 0
       ? `${(baseDisk / q.disk_size_gb).toFixed(1)}× smaller`
       : '—';
+  const pplDelta =
+    typeof c.ppl_increase === 'number' ? `${c.ppl_increase >= 0 ? '+' : ''}${(c.ppl_increase * 100).toFixed(1)}%` : '—';
+  const row = (label: string, b: string, a: string) => (
+    <tr key={label}>
+      <td>{label}</td>
+      <td>{b}</td>
+      <td>{a}</td>
+    </tr>
+  );
   return (
     <div className="card">
       <h2>Certificate of quantization</h2>
@@ -370,7 +379,6 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
         <h4>CERTIFICATE OF QUANTIZATION · QUANTIV v1.0</h4>
         <div className="certgrid">
           <div><small>METHOD</small><b>{report.quant.method} {report.quant.quant}</b></div>
-          <div><small>PPL CHANGE</small><b>{c.ppl_increase ?? '—'}</b></div>
           <div><small>SIZE</small><b>{shrink}</b></div>
           <div><small>SPEED</small><b>{q.tokens_per_sec ?? '—'} tok/s</b></div>
           <div><small>TEXTS</small><b>{(q.text_source || '').split('(')[0]}</b></div>
@@ -383,6 +391,20 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
           </a>
         </p>
       </div>
+      <h3>Before → after</h3>
+      <table>
+        <tbody>
+          <tr><th>Metric</th><th>Baseline</th><th>Quantized</th></tr>
+          {row('Perplexity (↓ better)', String(base.perplexity ?? '—'), String(q.perplexity ?? '—') + ` (${pplDelta})`)}
+          {row('Disk size', baseDisk != null ? `${baseDisk} GB` : '—', q.disk_size_gb != null ? `${q.disk_size_gb} GB` : '—')}
+          {row('Decode speed', (base.tokens_per_sec as number | null) != null ? `${base.tokens_per_sec} tok/s` : '—', q.tokens_per_sec != null ? `${q.tokens_per_sec} tok/s` : '—')}
+        </tbody>
+      </table>
+      <p>
+        <a href={`/jobs/${job.id}/download`}>
+          <button style={{ width: 'auto', marginTop: 6 }}>Download quantized model (.zip) ↓</button>
+        </a>
+      </p>
       {report.attempts.length > 0 && (
         <table>
           <tbody>

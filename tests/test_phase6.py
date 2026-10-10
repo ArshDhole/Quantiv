@@ -64,3 +64,57 @@ def test_dashboard_submit_and_status(tmp_path, monkeypatch):
     s = client.get(f"/jobs/{job_id}").json()
     assert s["status"] in ("running", "done", "failed")
     assert isinstance(client.get("/jobs").json(), list)
+    assert client.get("/jobs/nope/download").status_code == 404
+
+
+def test_build_artifact_zip(tmp_path):
+    import zipfile
+
+    from quantiv.dashboard.app import build_artifact_zip
+
+    run = tmp_path / "run1"
+    qdir = run / "attempt1-hqq"
+    qdir.mkdir(parents=True)
+    (qdir / "qmodel.pt").write_bytes(b"fake-weights")
+    (qdir / "config.json").write_text("{}")
+    (run / "report.json").write_text(json.dumps({
+        "quant": {"method": "hqq", "quant": "4bit", "attempt_dir": str(qdir)},
+        "comparison": {"gate_pass": True},
+    }))
+    (run / "report.md").write_text("# report")
+    archive = build_artifact_zip(run)
+    names = zipfile.ZipFile(archive).namelist()
+    assert "quantized/qmodel.pt" in names
+    assert "report.json" in names and "report.md" in names
+
+
+def test_download_endpoint_serves_zip(tmp_path, monkeypatch):
+    import sqlite3
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from quantiv.dashboard import create_app
+
+    monkeypatch.chdir(tmp_path)
+    dash = tmp_path / "dash"
+    client = TestClient(create_app(dash))
+    run = dash / "job1"
+    qdir = run / "attempt1-hqq"
+    qdir.mkdir(parents=True)
+    (qdir / "model.gguf").write_bytes(b"fake")
+    (run / "report.json").write_text(json.dumps({
+        "quant": {"method": "gguf", "attempt_dir": str(qdir)},
+    }))
+    client.get("/jobs")  # ensure jobs table exists before raw insert
+    conn = sqlite3.connect(dash / "jobs.db")
+    conn.execute(
+        "INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("job1", "m", "balanced", "gguf", "done", time.time(), time.time(), str(run), "", ""),
+    )
+    conn.commit()
+    conn.close()
+    r = client.get("/jobs/job1/download")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert len(r.content) > 0
