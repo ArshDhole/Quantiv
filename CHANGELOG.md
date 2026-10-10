@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2
+- Precision control end-to-end: 2/3/4/5/6/8-bit selector (dashboard + `--bits`), GGUF k-quant mapping
+- Artifact downloads (.zip with weights + reports) from the dashboard
+- Stall watchdog: startup cleanup, silence auto-fail, eval heartbeats
+- React+Vite dashboard: tradeoff chart, certificates, before→after tables, plan preview
+- DeepSeek-R1-Distill-1.5B verified (gate PASS); Qwen2.5-0.5B + SmolLM2 matrices extended
+- CI green on all runners (fixed `huggingface_hub>=1.5` pin)
+
 ## v1.0 (final)
 - Complete pipeline: analyze → plan (ranked) → quantize → evaluate → gate → escalate → report → package
 - Backends: HQQ, GGUF (Q2_K–Q8_0), GPTQ (gptqmodel), AWQ (gptqmodel engine), bitsandbytes (8-bit/NF4)
