@@ -1,0 +1,24 @@
+# Quantiv CUDA image: full backends (GPTQ/AWQ/bnb need a GPU at runtime).
+# Base: official PyTorch CUDA runtime (torch preinstalled) + CUDA toolkit for JIT kernels.
+# Build: docker build -f docker/Dockerfile.cuda -t quantiv:cuda .
+# Run:   docker run --gpus all -p 8020:8020 quantiv:cuda run <model> --method auto
+FROM pytorch/pytorch:2.9.1-cuda13.0-cudnn9-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONIOENCODING=utf-8 PIP_NO_CACHE_DIR=1
+ENV CUDA_HOME=/usr/local/cuda PATH="/usr/local/cuda/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build git && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src/ src/
+COPY configs/ configs/
+
+RUN pip install --upgrade pip && \
+    pip install -e ".[core-ml,gguf,bnb,hqq,gptq,awq,calib,web,dev]" && \
+    pip install pytest ruff triton
+
+EXPOSE 8020
+ENTRYPOINT ["quantiv"]
+CMD ["doctor"]
