@@ -11,15 +11,23 @@ from quantiv.quantizers import auto_select, available_backends, get_backend, run
 from quantiv.quantizers.base import QuantizeRequest
 
 
+def _has(mod: str) -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec(mod) is not None
+
+
 def test_registry_probes_all_backends():
     statuses = available_backends()
     assert set(statuses) == {"gptq", "awq", "hqq", "bnb", "gguf"}
-    assert statuses["hqq"].available  # torch+hqq installed
-    assert statuses["gguf"].available  # llama_cpp+gguf+torch installed
-    # CUDA-only backends: available iff torch sees a GPU.
-
-    for name in ("gptq", "awq", "bnb"):
-        assert statuses[name].available == torch.cuda.is_available()
+    # Availability follows the environment: installed lib (+ CUDA where required).
+    # This keeps the suite green in minimal CI and full local envs alike.
+    assert statuses["hqq"].available == (_has("hqq") and _has("torch"))
+    assert statuses["gguf"].available == (_has("llama_cpp") and _has("gguf") and _has("torch"))
+    cuda = torch.cuda.is_available() if _has("torch") else False
+    assert statuses["gptq"].available == (_has("gptqmodel") and cuda)
+    assert statuses["awq"].available == ((_has("gptqmodel") or _has("llmcompressor")) and cuda)
+    assert statuses["bnb"].available == (_has("bitsandbytes") and cuda)
 
 
 def test_auto_select_returns_available():
