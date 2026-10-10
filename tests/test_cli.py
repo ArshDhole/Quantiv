@@ -30,9 +30,9 @@ def test_run_unknown_method_fails():
     assert r.exit_code != 0
 
 
-def test_run_agent_refused():
-    r = runner.invoke(app, ["run", "some-model", "--agent"])
-    assert r.exit_code == 3
+def test_run_agent_openai_compat_needs_args():
+    r = runner.invoke(app, ["run", "some-model", "--agent", "--agent-provider", "openai-compat"])
+    assert r.exit_code == 2
 
 
 def test_planner_goals():

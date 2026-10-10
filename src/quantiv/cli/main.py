@@ -135,6 +135,9 @@ def run(
     group_size: int = typer.Option(64, "--group-size", help="Quantization group size"),
     output_dir: str = typer.Option("runs", "--output-dir", "-o"),
     no_agent: bool = typer.Option(True, "--no-agent/--agent", help="Rules-only (default) vs LLM agent (Phase 5)"),
+    agent_provider: str = typer.Option("echo", "--agent-provider", help="echo|openai-compat"),
+    agent_model: str = typer.Option("", "--agent-model", help="Model for openai-compat provider"),
+    agent_base_url: str = typer.Option("", "--agent-base-url", help="Base URL for openai-compat provider"),
 ) -> None:
     """End-to-end: analyze -> quantize -> evaluate -> gate -> escalate (bounded)."""
     from datetime import datetime
@@ -151,8 +154,29 @@ def run(
         no_agent=no_agent,
     )  # type: ignore[arg-type]
     if not no_agent:
-        console.print("[red]Agent mode (--agent) is not implemented until Phase 5. Re-run with --no-agent.[/red]")
-        raise typer.Exit(3)
+        from quantiv.agent import EchoProvider, OpenAICompatProvider, run_agent
+
+        if agent_provider == "openai-compat":
+            if not agent_model or not agent_base_url:
+                console.print("[red]--agent-provider openai-compat needs --agent-model and --agent-base-url.[/red]")
+                raise typer.Exit(2)
+            import os
+
+            provider = OpenAICompatProvider(
+                model=agent_model, base_url=agent_base_url, api_key=os.environ.get("QUANTIV_API_KEY", "")
+            )
+        else:
+            provider = EchoProvider()
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        agent_dir = Path(output_dir) / f"{stamp}-agent-{cfg.goal}"
+        res = run_agent(
+            model, goal=goal, run_dir=str(agent_dir), provider=provider, on_step=lambda m: console.print(f"  {m}")
+        )
+        if not res.success:
+            console.print(f"[red]Agent run failed: {res.error}[/red]")
+            raise typer.Exit(4)
+        console.print(f"[green]Agent done.[/green] Report: {res.report_md}")
+        return
 
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     run_dir = Path(output_dir) / f"{stamp}-{cfg.method}-{cfg.goal}"
