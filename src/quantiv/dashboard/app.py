@@ -68,7 +68,10 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
         conn.commit()
         conn.close()
 
-    def run_job(job_id: str, model: str, goal: str, method: str, max_samples: int, max_attempts: int) -> None:
+    def run_job(
+        job_id: str, model: str, goal: str, method: str,
+        max_samples: int, max_attempts: int, bits: int,
+    ) -> None:
         from quantiv.planner.pipeline import run_pipeline
         from quantiv.quantizers.base import resolve_device
 
@@ -85,6 +88,7 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
                 model,
                 goal=goal,
                 method=method,
+                bits=bits,
                 device=resolve_device(),
                 max_attempts=max_attempts,
                 max_samples=max_samples,
@@ -175,6 +179,8 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
         conn.close()
         max_samples = max(1, min(64, int(payload.get("max_samples", 16) or 16)))
         max_attempts = max(1, min(5, int(payload.get("max_attempts", 3) or 3)))
+        bits = int(payload.get("bits", 4) or 4)
+        bits = bits if bits in (2, 3, 4, 5, 6, 8) else 4
         threading.Thread(
             target=run_job,
             args=(
@@ -184,6 +190,7 @@ def create_app(state_dir: str | Path = "runs/dashboard"):
                 payload.get("method", "auto"),
                 max_samples,
                 max_attempts,
+                bits,
             ),
             daemon=True,
         ).start()

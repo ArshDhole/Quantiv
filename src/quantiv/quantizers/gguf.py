@@ -18,6 +18,9 @@ from quantiv.quantizers.base import BackendStatus, Quantizer, QuantizeRequest, Q
 
 LLAMACPP_TAG = "v0.6.0"  # verified 2026-10-09: latest release; converter at repo root + conversion/ pkg
 
+# bit-width -> default k-quant (used when no explicit quant label is given)
+BITS_TO_QUANT = {2: "Q2_K", 3: "Q3_K_M", 4: "Q4_K_M", 5: "Q5_K_M", 6: "Q6_K", 8: "Q8_0"}
+
 SUPPORTED_QUANTS = (
     "Q2_K",
     "Q3_K_S",
@@ -99,7 +102,7 @@ class GGUQuantizer(Quantizer):
 
         t0 = time.time()
         self.prepare(request)
-        quant = (request.quant or "Q4_K_M").upper()
+        quant = (request.quant or BITS_TO_QUANT.get(request.bits or 4, "Q4_K_M")).upper()
         if quant not in SUPPORTED_QUANTS:
             raise ValueError(f"Unsupported GGUF quant '{quant}'. Supported: {SUPPORTED_QUANTS}")
         out = Path(request.output_dir)

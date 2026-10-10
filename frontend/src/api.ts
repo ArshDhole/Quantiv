@@ -81,7 +81,7 @@ export const api = {
   backends: () => fetch('/api/backends').then(j<Record<string, BackendInfo>>),
   plan: (model: string, goal: string) =>
     fetch(`/api/plan?model=${encodeURIComponent(model)}&goal=${goal}`).then(j<PlanPreview>),
-  submit: (p: { model: string; goal: string; method: string; max_samples: number; max_attempts: number }) =>
+  submit: (p: { model: string; goal: string; method: string; max_samples: number; max_attempts: number; bits: number }) =>
     fetch('/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

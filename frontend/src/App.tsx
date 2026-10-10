@@ -19,6 +19,7 @@ export default function App() {
   const [method, setMethod] = useState('auto');
   const [samples, setSamples] = useState('16');
   const [attempts, setAttempts] = useState('3');
+  const [bits, setBits] = useState('4');
   const [plan, setPlan] = useState<PlanPreview | null>(null);
   const [backends, setBackends] = useState<Record<string, BackendInfo>>({});
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -141,6 +142,7 @@ export default function App() {
         method,
         max_samples: parseInt(samples || '16', 10),
         max_attempts: parseInt(attempts || '3', 10),
+        bits: parseInt(bits || '4', 10),
       });
       await refreshJobs();
       setSelected(r.id);
@@ -171,6 +173,8 @@ export default function App() {
         setSamples={setSamples}
         attempts={attempts}
         setAttempts={setAttempts}
+        bits={bits}
+        setBits={setBits}
         plan={plan}
         busy={busy}
         onFire={fire}

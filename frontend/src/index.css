@@ -78,7 +78,7 @@ button:hover { filter: brightness(1.08); }
 button:disabled { opacity: 0.55; cursor: wait; }
 .frow { display: grid; gap: 12px; }
 .frow.main { grid-template-columns: 1.7fr 1fr auto; align-items: end; }
-.frow.sub { grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.frow.sub { grid-template-columns: 1fr 1fr 1fr; margin-top: 12px; }
 .goals { display: flex; gap: 8px; flex-wrap: wrap; }
 .goal {
   border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer;

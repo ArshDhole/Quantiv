@@ -129,7 +129,7 @@ def run_pipeline(
                 device=device,
                 seed=42,
                 mixed=mixed_map,
-                quant="Q4_K_M" if step["method"] == "gguf" else "",
+                quant="",  # backends resolve "" from bits (e.g. GGUF k-quants)
             ),
             goal=goal,
         )

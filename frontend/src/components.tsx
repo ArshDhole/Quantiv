@@ -73,6 +73,8 @@ interface ComposerProps {
   setSamples: (s: string) => void;
   attempts: string;
   setAttempts: (s: string) => void;
+  bits: string;
+  setBits: (s: string) => void;
   plan: PlanPreview | null;
   busy: boolean;
   onFire: () => void;
@@ -157,6 +159,17 @@ export function Composer(p: ComposerProps) {
       </div>
       <div className="frow sub">
         <div>
+          <label>Precision</label>
+          <select value={p.bits} onChange={(e) => p.setBits(e.target.value)}>
+            <option value="2">2-bit · tiny</option>
+            <option value="3">3-bit</option>
+            <option value="4">4-bit · balanced</option>
+            <option value="5">5-bit</option>
+            <option value="6">6-bit</option>
+            <option value="8">8-bit · near-lossless</option>
+          </select>
+        </div>
+        <div>
           <label>Eval samples</label>
           <select value={p.samples} onChange={(e) => p.setSamples(e.target.value)}>
             <option>8</option>
@@ -175,6 +188,9 @@ export function Composer(p: ComposerProps) {
           </select>
         </div>
       </div>
+      <p className="hint" style={{ marginBottom: 0 }}>
+        GGUF maps bits to k-quants (4→Q4_K_M, 8→Q8_0); a gate miss escalates bits automatically.
+      </p>
     </div>
   );
 }
