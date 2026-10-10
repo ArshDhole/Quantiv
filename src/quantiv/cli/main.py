@@ -14,7 +14,6 @@ from rich.table import Table
 from quantiv import __version__
 from quantiv.analyzer import analyze_model
 from quantiv.hardware import get_target_profile, list_targets, profile_hardware
-from quantiv.planner import recommend_plans
 from quantiv.utils.config import RunConfig
 from quantiv.utils.logging import get_logger, set_verbose
 
@@ -96,19 +95,29 @@ def plan(
     vram = tgt.get("vram_gb", hw.gpu_vram_gb)
     profile = analyze_model(model)
     params_b = (profile.param_count / 1e9) if profile.param_count else None
-    cands = recommend_plans(params_b, vram, cfg.goal)
+    try:
+        from quantiv.quantizers import available_backends
+
+        avail = {k: v.available for k, v in available_backends().items()}
+    except Exception:
+        avail = {}
+    from quantiv.planner.rank import rank_candidates
+
+    ranked = rank_candidates(goal=cfg.goal, params_b=params_b, target_vram_gb=vram, available=avail)
     table = Table(title=f"Plan for {model} -> {target} ({goal})")
     table.add_column("#")
     table.add_column("Method")
     table.add_column("Quant")
+    table.add_column("Score")
+    table.add_column("Fits")
     table.add_column("Reason")
-    for i, c in enumerate(cands, 1):
-        table.add_row(str(i), c["method"], c["quant"], c["reason"])
+    for i, c in enumerate(ranked, 1):
+        table.add_row(str(i), c.method, c.quant, str(c.score), str(c.fits_target), "; ".join(c.reasons[:2]))
     console.print(table)
     console.print(f"Quality gate: max_ppl_increase={cfg.max_ppl_increase} | target vram={vram}GB | params={params_b}B")
     if output:
         Path(output).write_text(
-            json.dumps({"model": model, "target": tgt, "candidates": cands}, indent=2),
+            json.dumps({"model": model, "target": tgt, "candidates": [c.to_dict() for c in ranked]}, indent=2),
             encoding="utf-8",
         )
 
@@ -119,20 +128,19 @@ def run(
     target: str = typer.Option("local", "--target"),
     goal: str = typer.Option("balanced", "--goal"),
     method: str = typer.Option("auto", "--method", help="auto|gguf|gptq|awq|hqq|bnb|torchao"),
+    bits: int = typer.Option(4, "--bits", help="Starting bit-width"),
     max_ppl_increase: float = typer.Option(0.05, "--max-ppl-increase"),
+    max_attempts: int = typer.Option(3, "--max-attempts", help="Bounded escalation attempts"),
     max_samples: int = typer.Option(16, "--max-samples", help="Held-out samples for perplexity"),
     group_size: int = typer.Option(64, "--group-size", help="Quantization group size"),
     output_dir: str = typer.Option("runs", "--output-dir", "-o"),
     no_agent: bool = typer.Option(True, "--no-agent/--agent", help="Rules-only (default) vs LLM agent (Phase 5)"),
 ) -> None:
-    """End-to-end: analyze -> quantize -> evaluate baseline + quantized -> report."""
+    """End-to-end: analyze -> quantize -> evaluate -> gate -> escalate (bounded)."""
     from datetime import datetime
 
-    from quantiv.evaluation import evaluate_gguf_full, evaluate_hf_model
-    from quantiv.packaging.manifest import build_manifest, write_manifest
-    from quantiv.packaging.report import write_report
-    from quantiv.quantizers import run_quantization
-    from quantiv.quantizers.base import QuantizeRequest, resolve_device
+    from quantiv.planner.pipeline import run_pipeline
+    from quantiv.quantizers.base import resolve_device
 
     cfg = RunConfig(
         model=model,
@@ -148,58 +156,33 @@ def run(
 
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     run_dir = Path(output_dir) / f"{stamp}-{cfg.method}-{cfg.goal}"
-    quant_dir = run_dir / "quantized"
     device = resolve_device()
-    console.print(f"Quantizing [bold]{model}[/bold] method={cfg.method} goal={goal} device={device}")
-
-    result = run_quantization(
-        QuantizeRequest(
-            model=model,
-            method=cfg.method,
-            output_dir=str(quant_dir),
-            device=device,
-            group_size=group_size,
-            quant="Q4_K_M" if cfg.method in ("auto", "gguf") else "",
-        ),
-        goal=goal,
-    )
-    if not result.success:
-        console.print(f"[red]Quantization failed: {result.message}[/red]")
-        raise typer.Exit(4)
     console.print(
-        f"[green]Quantized:[/green] {result.method} {result.quant} in {result.elapsed_s}s -> {result.output_dir}"
+        f"Quantizing [bold]{model}[/bold] method={cfg.method} bits={bits} goal={goal} "
+        f"device={device} max_attempts={max_attempts}"
     )
-
-    console.print("Evaluating baseline (original model)...")
-    baseline_report = evaluate_hf_model(model, device=device, max_samples=max_samples)
-    console.print(f"Baseline ppl={baseline_report.perplexity} tok/s={baseline_report.tokens_per_sec}")
-    console.print("Evaluating quantized model...")
-    if result.method == "gguf":
-        ggufs = sorted(quant_dir.glob("*.gguf"))
-        quant_report = evaluate_gguf_full(ggufs[0], max_samples=max_samples) if ggufs else baseline_report
-    else:
-        quant_report = evaluate_hf_model(result.output_dir, device=device, max_samples=max_samples)
-    console.print(f"Quantized ppl={quant_report.perplexity} tok/s={quant_report.tokens_per_sec}")
-
-    gates = {"max_ppl_increase": max_ppl_increase}
-    json_path, md_path = write_report(
-        run_dir,
-        baseline_report,
-        quant_report,
-        {
-            "method": result.method,
-            "quant": result.quant,
-            "elapsed_s": result.elapsed_s,
-            "files": result.files,
-            "device": device,
-        },
-        gates,
+    try:
+        out = run_pipeline(
+            model,
+            goal=goal,
+            method=cfg.method,
+            bits=bits,
+            device=device,
+            max_ppl_increase=max_ppl_increase,
+            max_attempts=max_attempts,
+            max_samples=max_samples,
+            group_size=group_size,
+            run_dir=run_dir,
+            on_step=lambda m: console.print(f"  {m}"),
+        )
+    except Exception as e:
+        console.print(f"[red]Run failed: {e}[/red]")
+        raise typer.Exit(4) from e
+    final_gate = out["attempts"][-1]["gate_pass"] if out["attempts"] else None
+    console.print(
+        f"[green]Done.[/green] {out['quant_info']['method']} {out['quant_info']['quant']} "
+        f"gate={final_gate} attempts={len(out['attempts'])} Report: {out['report_md']}"
     )
-    manifest = build_manifest(
-        model, {"run_dir": str(run_dir), "method": result.method, "quant": result.quant, "device": device, "goal": goal}
-    )
-    write_manifest(run_dir, manifest)
-    console.print(f"[green]Done.[/green] Report: {md_path} | JSON: {json_path}")
 
 
 @app.command()

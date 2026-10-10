@@ -30,20 +30,18 @@ class HQQQuantizer(Quantizer):
 
     def quantize(self, request: QuantizeRequest) -> QuantizeResult:
         import torch
-        from hqq.core.quantize import BaseQuantizeConfig
+        from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
         from hqq.models.hf.base import AutoHQQHFModel
+        from torch import nn
         from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from quantiv.planner.sensitivity import find_blocks
 
         t0 = time.time()
         self.prepare(request)
         device = resolve_device(request.device)
         bits = request.bits or 4
-        quant_config = BaseQuantizeConfig(
-            nbits=bits,
-            group_size=request.group_size or 64,
-            quant_zero=True,
-            quant_scale=False,
-        )
+        gs = request.group_size or 64
         torch_dtype = torch.float16 if device == "cuda" else torch.float32
         # NOTE: we deliberately use the generic AutoHQQHFModel path, not
         # HQQModelForCausalLM. The arch-specific registry (LlamaHQQ, ...) and
@@ -52,7 +50,29 @@ class HQQQuantizer(Quantizer):
         model = AutoModelForCausalLM.from_pretrained(request.model, torch_dtype=torch_dtype)
         if device == "cuda":
             model.to("cuda")
-        AutoHQQHFModel.quantize_model(model, quant_config, compute_dtype=torch_dtype, device=device)
+        label: str
+        if request.mixed:
+            # True per-block mixed precision: patch each block's Linears directly.
+            AutoHQQHFModel.setup_model(model)
+            for bname, block in find_blocks(model):
+                cfg = BaseQuantizeConfig(
+                    nbits=request.mixed.get(bname, bits),
+                    group_size=gs,
+                    quant_zero=True,
+                    quant_scale=False,
+                )
+                for lname, linear in list(block.named_modules()):
+                    if type(linear) is nn.Linear:
+                        parent = block
+                        *path, leaf = lname.split(".")
+                        for p in path:
+                            parent = getattr(parent, p)
+                        setattr(parent, leaf, HQQLinear(linear, cfg, compute_dtype=torch_dtype, device=device))
+            label = f"mixed({len(request.mixed)} blocks)"
+        else:
+            quant_config = BaseQuantizeConfig(nbits=bits, group_size=gs, quant_zero=True, quant_scale=False)
+            AutoHQQHFModel.quantize_model(model, quant_config, compute_dtype=torch_dtype, device=device)
+            label = f"{bits}bit-g{gs}"
         out = Path(request.output_dir)
         AutoHQQHFModel.save_quantized(model, str(out))
         try:
@@ -64,9 +84,9 @@ class HQQQuantizer(Quantizer):
         return QuantizeResult(
             output_dir=str(out),
             method=self.name,
-            quant=f"{bits}bit-g{request.group_size or 64}",
+            quant=label,
             success=True,
-            message=f"HQQ {bits}-bit quantized on {device}",
+            message=f"HQQ {label} quantized on {device}",
             files=files,
             elapsed_s=round(time.time() - t0, 2),
         )

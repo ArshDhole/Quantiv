@@ -17,6 +17,7 @@ class QuantizeRequest:
     output_dir: str = "runs/out"
     seed: int = 42
     device: str = "auto"  # auto|cuda|cpu
+    mixed: dict[str, int] | None = None  # block_name -> bits (HQQ mixed precision)
 
 
 @dataclass

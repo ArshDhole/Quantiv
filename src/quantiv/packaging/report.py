@@ -18,6 +18,7 @@ def write_report(
     quantized: EvalReport,
     quant_info: dict,
     quality_gates: dict,
+    attempts: list[dict] | None = None,
 ) -> tuple[Path, Path]:
     """Write report.json + report.md. Returns (json_path, md_path)."""
     run_dir = Path(run_dir)
@@ -38,6 +39,7 @@ def write_report(
             "gate_max_ppl_increase": gate_max,
             "gate_pass": gate_pass,
         },
+        "attempts": attempts or [],
         "note": "Every number above was measured in this run; see text_source/device fields for method.",
     }
     json_path = run_dir / "report.json"
@@ -72,6 +74,16 @@ def write_report(
         md.append(f"- quantized: {w}")
     if not baseline.warnings and not quantized.warnings:
         md.append("- none")
+    if attempts:
+        md += ["", "## Attempts (escalation ladder)", ""]
+        md.append("| # | Method | Quant | PPL | Gate | Note |")
+        md.append("|---|---|---|---|---|---|")
+        for a in attempts:
+            gate = "PASS" if a.get("gate_pass") else ("FAIL" if a.get("gate_pass") is False else "n/a")
+            md.append(
+                f"| {a.get('n')} | {a.get('method')} | {a.get('quant')} | "
+                f"{a.get('ppl')} | {gate} | {a.get('note', '')} |"
+            )
     md_path = run_dir / "report.md"
     md_path.write_text("\n".join(md) + "\n", encoding="utf-8")
     return json_path, md_path
