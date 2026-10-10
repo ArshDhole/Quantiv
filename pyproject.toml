@@ -72,6 +72,10 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# dashboard embeds a single-file HTML UI; long markup lines are fine
+"src/quantiv/dashboard/app.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = false
