@@ -24,7 +24,7 @@ export function Topbar({ backends }: { backends: Record<string, BackendInfo> }) 
     <div className="topbar">
       <div className="mark">Q</div>
       <div className="brand">
-        Quantiv<small>v1.0 · PRECISION LAB</small>
+        Quantiv<small>PRECISION LAB</small>
       </div>
       <div className="pills">
         <span className="pill">
@@ -314,7 +314,7 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
   if (job.status === 'failed') {
     return (
       <div className="card">
-        <h2>Certificate of quantization</h2>
+        <h2>Result</h2>
         <h3>
           {job.model} <Badge status={job.status} />
         </h3>
@@ -331,7 +331,7 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
   if (!report) {
     return (
       <div className="card">
-        <h2>Certificate of quantization</h2>
+        <h2>Result</h2>
         <h3>
           {job.model} <Badge status={job.status} />
         </h3>
@@ -364,7 +364,7 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
   );
   return (
     <div className="card">
-      <h2>Certificate of quantization</h2>
+      <h2>Result</h2>
       <h3>
         {job.model}{' '}
         <small className="hint">
@@ -372,25 +372,20 @@ export function Certificate({ job, report }: { job: Job; report: Report | null }
         </small>{' '}
         <Badge status={job.status} />
       </h3>
-      <div className="cert">
-        <span className={'stamp' + (pass ? '' : ' bad')}>
-          GATE&nbsp;{pass ? 'PASS' : 'FAIL'}
-        </span>
-        <h4>CERTIFICATE OF QUANTIZATION · QUANTIV v1.0</h4>
-        <div className="certgrid">
-          <div><small>METHOD</small><b>{report.quant.method} {report.quant.quant}</b></div>
-          <div><small>SIZE</small><b>{shrink}</b></div>
-          <div><small>SPEED</small><b>{q.tokens_per_sec ?? '—'} tok/s</b></div>
-          <div><small>TEXTS</small><b>{(q.text_source || '').split('(')[0]}</b></div>
-          <div><small>DEVICE</small><b>{q.device || report.quant.device || ''}</b></div>
-        </div>
-        <p className="hint">
-          measured, not claimed ·{' '}
-          <a href={`/jobs/${job.id}/report`} target="_blank" rel="noreferrer">
-            full report.json →
-          </a>
-        </p>
+      <div className="certgrid" style={{ margin: '14px 0' }}>
+        <div><small>GATE</small><b className={pass ? 'pass' : 'fail'}>{pass ? 'PASS' : 'FAIL'}</b></div>
+        <div><small>METHOD</small><b>{report.quant.method} {report.quant.quant}</b></div>
+        <div><small>SIZE</small><b>{shrink}</b></div>
+        <div><small>SPEED</small><b>{q.tokens_per_sec ?? '—'} tok/s</b></div>
+        <div><small>TEXTS</small><b>{(q.text_source || '').split('(')[0]}</b></div>
+        <div><small>DEVICE</small><b>{q.device || report.quant.device || ''}</b></div>
       </div>
+      <p className="hint">
+        measured, not claimed ·{' '}
+        <a href={`/jobs/${job.id}/report`} target="_blank" rel="noreferrer">
+          full report.json →
+        </a>
+      </p>
       <h3>Before → after</h3>
       <table>
         <tbody>
